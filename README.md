@@ -25,18 +25,21 @@ If Codex stores credentials only in an OS keyring, the first release reports
 
 ```bash
 npm install --global @codingformoney/codex-bridge
-export CODEX_BRIDGE_API_KEY="choose-a-local-client-token"
 codex-bridge serve
 ```
 
-The server listens on `http://127.0.0.1:3456` by default.
+On first use, Codex Bridge generates a local API key and saves it to
+`~/.cb/config.json`. Every `serve` startup prints the current key so it can be
+copied into the client. The server listens on `http://127.0.0.1:3456` by
+default.
 
 Use a temporary process-scoped Claude Code configuration when selecting the
 bridge. This leaves normal Claude Code sessions unchanged:
 
 ```bash
+export CB_API_KEY="copy-the-key-printed-by-codex-bridge"
 ANTHROPIC_BASE_URL="http://127.0.0.1:3456" \
-ANTHROPIC_AUTH_TOKEN="$CODEX_BRIDGE_API_KEY" \
+ANTHROPIC_AUTH_TOKEN="$CB_API_KEY" \
 claude --model gpt-5.5
 ```
 
@@ -49,6 +52,7 @@ The model must be available to the active Codex account. Run
 codex-bridge serve [--host HOST] [--port PORT]
 codex-bridge status [--host HOST] [--port PORT]
 codex-bridge doctor
+codex-bridge key refresh
 codex-bridge --version
 codex-bridge --help
 ```
@@ -57,6 +61,11 @@ codex-bridge --help
 - `status` reports server reachability and redacted credential state.
 - `doctor` validates credentials and model discovery without sending a model
   inference request.
+- `key refresh` replaces the local Bridge API key and prints the new value.
+
+The running server reads the stored key for every protected request. A manual
+refresh therefore takes effect immediately: clients using the old key receive
+HTTP 401 and must be updated with the newly printed key.
 
 There are no `login`, `refresh`, or `logout` commands. Open Codex and make a
 request, or run `codex login`, when the bridge reports expired or unauthorized
@@ -75,13 +84,13 @@ The bridge exposes:
 All endpoints except `/health` require either:
 
 ```text
-x-api-key: <CODEX_BRIDGE_API_KEY>
+x-api-key: <printed Codex Bridge API key>
 ```
 
 or:
 
 ```text
-Authorization: Bearer <CODEX_BRIDGE_API_KEY>
+Authorization: Bearer <printed Codex Bridge API key>
 ```
 
 Messages support text, image inputs, tools, tool results, streaming, reasoning
@@ -96,7 +105,6 @@ billing or exact context-window accounting.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CODEX_BRIDGE_API_KEY` | required | Bridge-specific local client token |
 | `CODEX_BRIDGE_HOST` | `127.0.0.1` | Bind address |
 | `CODEX_BRIDGE_PORT` | `3456` | Bind port |
 | `CODEX_HOME` | `~/.codex` | Existing Codex home |
@@ -113,6 +121,13 @@ can usually reach a host bridge through `host.docker.internal` after the bridge
 is explicitly bound to a reachable host address.
 
 ## Credential Behavior
+
+The Bridge-specific client key is generated from 32 random bytes. Codex Bridge
+creates `~/.cb` with mode `0700` and `~/.cb/config.json` with mode `0600` on
+Unix-like systems. This key is unrelated to Codex OAuth credentials.
+
+Run `codex-bridge key refresh` to rotate it. The command replaces only the
+Bridge key and never touches Codex credentials.
 
 Codex Bridge reads a fresh credential snapshot for every upstream request. It
 never writes `auth.json` and never uses the refresh token.

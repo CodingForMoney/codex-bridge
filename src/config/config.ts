@@ -13,12 +13,11 @@ export interface BridgeConfig {
   logLevel: "silent" | "error" | "info";
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): BridgeConfig {
-  const apiKey = env.CODEX_BRIDGE_API_KEY?.trim();
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, apiKey = ""): BridgeConfig {
   if (!apiKey) {
     throw new BridgeError(
       "BRIDGE_CONFIGURATION_INVALID",
-      "CODEX_BRIDGE_API_KEY is required. Set a bridge-specific local client token before starting the server.",
+      "Codex Bridge API key was not supplied by the local key store.",
       { statusCode: 500 }
     );
   }

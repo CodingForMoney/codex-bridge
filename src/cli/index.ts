@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { CodexCredentialReader } from "../auth/credential-reader.js";
+import { BridgeApiKeyStore } from "../config/api-key-store.js";
 import { loadConfig } from "../config/config.js";
 import { asBridgeError, redactSecrets } from "../errors.js";
 import { startBridgeServer } from "../server/app.js";
@@ -20,6 +21,8 @@ try {
     await status();
   } else if (command === "doctor") {
     await doctor();
+  } else if (command === "key") {
+    await keyCommand();
   } else {
     throw new Error(`Unknown command: ${command}`);
   }
@@ -30,11 +33,15 @@ try {
 }
 
 async function serve(): Promise<void> {
-  const config = loadConfig(withCliOverrides(process.env, args));
-  const running = await startBridgeServer({ config });
+  const keyStore = new BridgeApiKeyStore();
+  const apiKey = await keyStore.getOrCreate();
+  const config = loadConfig(withCliOverrides(process.env, args), apiKey);
+  const running = await startBridgeServer({ config, apiKeyProvider: keyStore });
   if (config.logLevel === "info") {
     console.log(`Codex Bridge ${VERSION} is running at ${running.url}`);
   }
+  console.log(`Codex Bridge API key: ${apiKey}`);
+  console.log(`API key file: ${keyStore.configPath}`);
   const shutdown = async () => {
     await running.close();
     process.exit(0);
@@ -44,7 +51,7 @@ async function serve(): Promise<void> {
 }
 
 async function status(): Promise<void> {
-  const config = loadConfig(withCliOverrides(process.env, args));
+  const config = await loadRuntimeConfig();
   const base = `http://${config.host}:${config.port}`;
   let server: "reachable" | "unreachable" = "unreachable";
   try {
@@ -60,7 +67,7 @@ async function status(): Promise<void> {
 }
 
 async function doctor(): Promise<void> {
-  const config = loadConfig(withCliOverrides(process.env, args));
+  const config = await loadRuntimeConfig();
   const credentialReader = new CodexCredentialReader({
     ...(config.codexHome ? { codexHome: config.codexHome } : {})
   });
@@ -77,6 +84,21 @@ async function doctor(): Promise<void> {
   }
   const models = await client.listModels(AbortSignal.timeout(10_000));
   console.log(JSON.stringify({ ok: true, node: process.version, auth, models: models.map((model) => model.id) }, null, 2));
+}
+
+async function keyCommand(): Promise<void> {
+  if (args[1] !== "refresh") {
+    throw new Error("Usage: codex-bridge key refresh");
+  }
+  const keyStore = new BridgeApiKeyStore();
+  const apiKey = await keyStore.refresh();
+  console.log(`Codex Bridge API key refreshed: ${apiKey}`);
+  console.log(`API key file: ${keyStore.configPath}`);
+}
+
+async function loadRuntimeConfig() {
+  const apiKey = await new BridgeApiKeyStore().getOrCreate();
+  return loadConfig(withCliOverrides(process.env, args), apiKey);
 }
 
 function withCliOverrides(env: NodeJS.ProcessEnv, values: string[]): NodeJS.ProcessEnv {
@@ -108,10 +130,8 @@ Usage:
   codex-bridge serve [--host HOST] [--port PORT]
   codex-bridge status [--host HOST] [--port PORT]
   codex-bridge doctor
+  codex-bridge key refresh
   codex-bridge --version
-
-Required environment:
-  CODEX_BRIDGE_API_KEY       Local client token accepted by the bridge
 
 Optional environment:
   CODEX_BRIDGE_HOST          Bind host (default: 127.0.0.1)
@@ -121,5 +141,6 @@ Optional environment:
   CODEX_BRIDGE_DEFAULT_EFFORT  Default reasoning effort (default: medium)
   CODEX_BRIDGE_CODEX_CLIENT_VERSION  Codex catalog compatibility version
 
+The local API key is generated in ~/.cb/config.json and printed when serve starts.
 Codex Bridge never logs in, refreshes OAuth tokens, or changes Claude Code settings.`);
 }

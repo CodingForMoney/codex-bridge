@@ -79,3 +79,42 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
   assert.equal(after.mtimeMs, before.mtimeMs);
   assert.equal(after.size, before.size);
 });
+
+test("uses a refreshed API key on the next request without restarting", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-live-key-"));
+  await writeCodexAuth(home);
+  let currentKey = "cb_old";
+  const config: BridgeConfig = {
+    host: "127.0.0.1",
+    port: 0,
+    apiKey: currentKey,
+    codexHome: home,
+    codexBaseUrl: "https://example.invalid",
+    codexClientVersion: "0.139.0",
+    defaultEffort: "medium",
+    bodyLimitBytes: 1024 * 1024,
+    logLevel: "silent"
+  };
+  const running = await startBridgeServer({
+    config,
+    credentialReader: new CodexCredentialReader({ codexHome: home }),
+    apiKeyProvider: { read: async () => currentKey },
+    codexClient: {
+      async createResponse() {
+        return codexSse(completeTextEvents());
+      },
+      async listModels() {
+        return [{ id: "gpt-test" }];
+      }
+    }
+  });
+  try {
+    assert.equal((await fetch(`${running.url}/v1/models`, { headers: { "x-api-key": currentKey } })).status, 200);
+    const oldKey = currentKey;
+    currentKey = "cb_new";
+    assert.equal((await fetch(`${running.url}/v1/models`, { headers: { "x-api-key": oldKey } })).status, 401);
+    assert.equal((await fetch(`${running.url}/v1/models`, { headers: { "x-api-key": currentKey } })).status, 200);
+  } finally {
+    await running.close();
+  }
+});

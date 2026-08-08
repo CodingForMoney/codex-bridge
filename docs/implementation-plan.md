@@ -58,7 +58,8 @@ error instructing the user to open Codex and make a request, or run
 ## 3. API Surface
 
 The local server binds to `127.0.0.1` by default and requires a local client
-token independent of the Codex credential.
+token independent of the Codex credential. The token is generated on first use,
+stored in `~/.cb/config.json`, and printed whenever `serve` starts.
 
 Initial endpoints:
 
@@ -115,6 +116,7 @@ src/
   cli/
     index.ts
   config/
+    api-key-store.ts
     config.ts
 ```
 
@@ -124,6 +126,8 @@ Primary components:
   token expiry, and returns redacted status information.
 - `CodexClient` owns all communication with the Codex backend and performs the
   single credential-reload retry after HTTP 401.
+- `BridgeApiKeyStore` creates, persists, reads, and explicitly rotates the local
+  client key without interacting with Codex authentication.
 - The protocol modules convert requests, responses, streaming events, tools,
   encrypted reasoning, and errors without containing credential or server
   concerns.
@@ -138,7 +142,6 @@ variables:
 
 - `CODEX_BRIDGE_HOST`
 - `CODEX_BRIDGE_PORT`
-- `CODEX_BRIDGE_API_KEY`
 - `CODEX_BRIDGE_LOG_LEVEL`
 - `CODEX_BRIDGE_CODEX_CLIENT_VERSION`, used only by the versioned private
   backend adapter for model-catalog compatibility
@@ -146,6 +149,11 @@ variables:
 
 No Codex access token, refresh token, or ID token may be accepted as persistent
 Codex Bridge configuration.
+
+The local API key is generated from 32 random bytes and stored in
+`~/.cb/config.json`. On Unix-like systems, the directory uses mode `0700` and
+the file uses mode `0600`. The server reads the file for each protected request
+so explicit key rotation takes effect without a server restart.
 
 Claude Code or VibeCodingMaster remains responsible for selecting when to use
 the bridge and for passing the bridge URL and local client token to that process.
@@ -156,6 +164,7 @@ the bridge and for passing the bridge URL and local client token to that process
 codex-bridge serve
 codex-bridge status
 codex-bridge doctor
+codex-bridge key refresh
 codex-bridge --version
 codex-bridge --help
 ```
@@ -164,9 +173,10 @@ codex-bridge --help
 - `status` reports server reachability and redacted Codex authentication state.
 - `doctor` validates Node.js, credential storage, model discovery, local port,
   and upstream reachability without sending a model request by default.
+- `key refresh` atomically replaces and prints the Bridge-specific client key.
 
-There is no `login`, `refresh`, or `logout` command. Those operations belong to
-Codex.
+There is no Codex `login`, OAuth `refresh`, or `logout` command. Those operations
+belong to Codex; `key refresh` rotates only the independent local Bridge key.
 
 ## 8. Error Contract
 
@@ -191,6 +201,8 @@ editing credential files manually.
 
 - bind to loopback unless the user explicitly selects another address
 - require a bridge-specific client token
+- generate the local client token with a cryptographically secure random source
+- protect the local key directory and file with owner-only permissions
 - redact authorization headers and all Codex token values
 - avoid request-body logging by default
 - disable telemetry by default
@@ -217,6 +229,8 @@ outside the initial scope.
 - tool-call and tool-result conversion
 - streaming event ordering and termination
 - stable error mapping
+- first-use key creation, persistence, permissions, concurrency, and explicit
+  rotation
 
 ### Integration tests
 

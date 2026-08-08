@@ -14,10 +14,15 @@ export interface CodexClientLike {
   listModels(signal?: AbortSignal): ReturnType<CodexClient["listModels"]>;
 }
 
+export interface BridgeApiKeyProvider {
+  read(): Promise<string>;
+}
+
 export interface BridgeServerOptions {
   config: BridgeConfig;
   credentialReader?: CodexCredentialReader;
   codexClient?: CodexClientLike;
+  apiKeyProvider?: BridgeApiKeyProvider;
 }
 
 export interface RunningBridgeServer {
@@ -35,8 +40,11 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<R
     baseUrl: options.config.codexBaseUrl,
     clientVersion: options.config.codexClientVersion
   });
+  const apiKeyProvider = options.apiKeyProvider ?? {
+    read: async () => options.config.apiKey
+  };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, options.config, credentialReader, codexClient);
+    void handleRequest(request, response, options.config, credentialReader, codexClient, apiKeyProvider);
   });
   server.requestTimeout = 0;
   server.headersTimeout = 30_000;
@@ -60,7 +68,8 @@ async function handleRequest(
   response: ServerResponse,
   config: BridgeConfig,
   credentialReader: CodexCredentialReader,
-  codexClient: CodexClientLike
+  codexClient: CodexClientLike,
+  apiKeyProvider: BridgeApiKeyProvider
 ): Promise<void> {
   const controller = new AbortController();
   request.once("aborted", () => controller.abort());
@@ -75,7 +84,7 @@ async function handleRequest(
       json(response, 200, { status: "ok", service: "codex-bridge" });
       return;
     }
-    authenticate(request, config.apiKey);
+    authenticate(request, await apiKeyProvider.read());
 
     if (request.method === "GET" && url.pathname === "/auth/status") {
       json(response, 200, await credentialReader.status());

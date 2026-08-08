@@ -15,6 +15,8 @@ export type BridgeErrorCode =
   | "BRIDGE_NOT_FOUND"
   | "BRIDGE_METHOD_NOT_ALLOWED"
   | "BRIDGE_BODY_TOO_LARGE"
+  | "BRIDGE_API_KEY_NOT_FOUND"
+  | "BRIDGE_API_KEY_INVALID"
   | "BRIDGE_CONFIGURATION_INVALID";
 
 export interface BridgeErrorOptions {
