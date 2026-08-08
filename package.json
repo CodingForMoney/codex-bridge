@@ -1,5 +1,5 @@
 {
-  "name": "@codingformoney/codex-bridge",
+  "name": "@luoxm/codex-bridge",
   "version": "0.1.0",
   "description": "A local Anthropic-compatible API bridge for an existing Codex login.",
   "type": "module",
@@ -12,7 +12,7 @@
     }
   },
   "bin": {
-    "codex-bridge": "./dist/src/cli/index.js"
+    "codex-bridge": "dist/src/cli/index.js"
   },
   "files": [
     "dist",
@@ -46,8 +46,7 @@
   ],
   "license": "MIT",
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

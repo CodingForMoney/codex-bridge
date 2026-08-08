@@ -24,7 +24,7 @@ If Codex stores credentials only in an OS keyring, the first release reports
 ## Start The Bridge
 
 ```bash
-npm install --global @codingformoney/codex-bridge
+npm install --global @luoxm/codex-bridge
 codex-bridge serve
 ```
 
