@@ -1,0 +1,56 @@
+{
+  "name": "@codingformoney/codex-bridge",
+  "version": "0.1.0",
+  "description": "A local Anthropic-compatible API bridge for an existing Codex login.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "bin": {
+    "codex-bridge": "./dist/src/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "docs/implementation-plan.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node scripts/clean.mjs && tsc -p tsconfig.test.json && node --test .test-dist/test/*.test.js",
+    "pack:check": "node scripts/pack-check.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CodingForMoney/codex-bridge.git"
+  },
+  "homepage": "https://github.com/CodingForMoney/codex-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/CodingForMoney/codex-bridge/issues"
+  },
+  "keywords": [
+    "codex",
+    "claude-code",
+    "anthropic",
+    "gateway",
+    "bridge"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -93,7 +93,7 @@ The Codex backend used by ChatGPT-authenticated Codex clients is not documented
 as a stable public third-party API. Upstream request headers, models, event
 formats, and endpoints must therefore be isolated behind a versioned adapter.
 
-## 5. Proposed Architecture
+## 5. Architecture
 
 ```text
 src/
@@ -103,23 +103,19 @@ src/
     credential-status.ts
   upstream/
     codex-client.ts
-    codex-models.ts
   protocol/
     anthropic-request.ts
     anthropic-response.ts
     anthropic-stream.ts
-    tool-mapping.ts
+    reasoning-envelope.ts
+    sse.ts
+    token-count.ts
   server/
     app.ts
-    authentication.ts
-    routes/
   cli/
-    serve.ts
-    status.ts
-    doctor.ts
+    index.ts
   config/
     config.ts
-    paths.ts
 ```
 
 Primary components:
@@ -128,8 +124,9 @@ Primary components:
   token expiry, and returns redacted status information.
 - `CodexClient` owns all communication with the Codex backend and performs the
   single credential-reload retry after HTTP 401.
-- `AnthropicAdapter` converts requests, responses, streaming events, tools, and
-  errors without containing credential or server concerns.
+- The protocol modules convert requests, responses, streaming events, tools,
+  encrypted reasoning, and errors without containing credential or server
+  concerns.
 - `LocalServer` handles local client authentication, request cancellation,
   endpoint validation, and graceful shutdown.
 - `CLI` exposes `serve`, `status`, and `doctor` without modifying external tools.
@@ -143,6 +140,8 @@ variables:
 - `CODEX_BRIDGE_PORT`
 - `CODEX_BRIDGE_API_KEY`
 - `CODEX_BRIDGE_LOG_LEVEL`
+- `CODEX_BRIDGE_CODEX_CLIENT_VERSION`, used only by the versioned private
+  backend adapter for model-catalog compatibility
 - `CODEX_HOME`, consumed as the standard Codex credential location
 
 No Codex access token, refresh token, or ID token may be accepted as persistent
