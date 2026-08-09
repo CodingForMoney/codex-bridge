@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { BridgeError } from "../errors.js";
+import { resolveSupportedModel } from "../models.js";
 import { decodeReasoningEnvelope } from "./reasoning-envelope.js";
 import type {
   AnthropicMessageRequest,
@@ -18,10 +19,7 @@ export function convertAnthropicRequest(
     throw invalidRequest("Anthropic Messages request must be a JSON object.");
   }
 
-  const model = options.modelOverride?.trim() || readString(value.model);
-  if (!model) {
-    throw invalidRequest("Anthropic Messages request requires a model.");
-  }
+  const model = resolveSupportedModel(value, options.modelOverride);
   if (!Array.isArray(value.messages)) {
     throw invalidRequest("Anthropic Messages request requires a messages array.");
   }

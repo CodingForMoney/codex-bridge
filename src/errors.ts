@@ -66,7 +66,11 @@ export function anthropicErrorType(error: BridgeError): string {
   if (error.code === "CODEX_UPSTREAM_RATE_LIMITED") {
     return "rate_limit_error";
   }
-  if (error.code.startsWith("PROTOCOL_REQUEST_") || error.code === "BRIDGE_BODY_TOO_LARGE") {
+  if (
+    error.code.startsWith("PROTOCOL_REQUEST_") ||
+    error.code === "CODEX_MODEL_UNAVAILABLE" ||
+    error.code === "BRIDGE_BODY_TOO_LARGE"
+  ) {
     return "invalid_request_error";
   }
   if (error.code === "BRIDGE_NOT_FOUND") {

@@ -12,6 +12,7 @@ Codex Bridge will:
 - read the existing local Codex OAuth credentials
 - translate supported Anthropic Messages requests to the Codex Responses API
 - translate Codex responses and streams back to Anthropic-compatible responses
+- support only `gpt-5.6-sol` and `gpt-5.6-luna`
 - run as a local service with no remote management dependency
 
 Codex Bridge will not:
@@ -72,6 +73,10 @@ Initial endpoints:
 The health and authentication endpoints expose state and safe metadata only.
 They never expose OAuth tokens or raw credential contents.
 
+`GET /v1/models` returns the fixed supported-model allowlist. Message and token
+count requests reject every model outside that allowlist before contacting the
+upstream service.
+
 ## 4. Protocol Translation
 
 The Anthropic compatibility layer must support the Claude Code request patterns
@@ -113,6 +118,7 @@ src/
     token-count.ts
   server/
     app.ts
+  models.ts
   cli/
     index.ts
   config/
@@ -143,8 +149,9 @@ variables:
 - `CODEX_BRIDGE_HOST`
 - `CODEX_BRIDGE_PORT`
 - `CODEX_BRIDGE_LOG_LEVEL`
-- `CODEX_BRIDGE_CODEX_CLIENT_VERSION`, used only by the versioned private
-  backend adapter for model-catalog compatibility
+- `CODEX_BRIDGE_CODEX_CLIENT_VERSION`, used as the versioned private backend
+  client identity
+- `CODEX_BRIDGE_MODEL`, optionally forcing one of the two supported models
 - `CODEX_HOME`, consumed as the standard Codex credential location
 
 No Codex access token, refresh token, or ID token may be accepted as persistent
@@ -171,8 +178,8 @@ codex-bridge --help
 
 - `serve` starts the local gateway.
 - `status` reports server reachability and redacted Codex authentication state.
-- `doctor` validates Node.js, credential storage, model discovery, local port,
-  and upstream reachability without sending a model request by default.
+- `doctor` validates Node.js and credential storage and reports the fixed
+  supported-model allowlist without sending a model request.
 - `key refresh` atomically replaces and prints the Bridge-specific client key.
 
 There is no Codex `login`, OAuth `refresh`, or `logout` command. Those operations
@@ -208,7 +215,7 @@ editing credential files manually.
 - disable telemetry by default
 - use a minimal dependency set
 - publish no npm lifecycle scripts that execute during installation
-- use npm provenance and protected publishing credentials
+- use protected npm publishing credentials
 - test packaged artifacts to ensure source credentials and local files are not
   included
 
@@ -231,12 +238,13 @@ outside the initial scope.
 - stable error mapping
 - first-use key creation, persistence, permissions, concurrency, and explicit
   rotation
+- exact supported-model allowlist and rejection of every other model
 
 ### Integration tests
 
 - local HTTP endpoints and client authentication
 - streaming cancellation and client disconnects
-- model discovery caching and invalidation
+- fixed model-list response and model rejection before upstream dispatch
 - mocked Codex 401, 429, 5xx, malformed stream, and network failure
 - verification that no code path writes to `auth.json` or `~/.claude`
 

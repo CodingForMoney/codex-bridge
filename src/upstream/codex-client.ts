@@ -10,11 +10,6 @@ export interface CodexClientOptions {
   clientVersion?: string;
 }
 
-export interface CodexModel {
-  id: string;
-  displayName?: string;
-}
-
 export class CodexClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
@@ -34,47 +29,6 @@ export class CodexClient {
         ...(signal ? { signal } : {})
       })
     );
-  }
-
-  async listModels(signal?: AbortSignal): Promise<CodexModel[]> {
-    const response = await this.withCredentialReload((credential) =>
-      this.request(`models?client_version=${encodeURIComponent(this.clientVersion)}`, credential, {
-        method: "GET",
-        ...(signal ? { signal } : {})
-      })
-    );
-    let value: unknown;
-    try {
-      value = await response.json();
-    } catch (error) {
-      throw new BridgeError("PROTOCOL_RESPONSE_INVALID", "Codex returned invalid model metadata.", {
-        cause: error,
-        statusCode: 502
-      });
-    }
-    const root = record(value);
-    if (!Array.isArray(root?.models)) {
-      throw new BridgeError("PROTOCOL_RESPONSE_INVALID", "Codex model response does not contain a models array.", {
-        statusCode: 502
-      });
-    }
-    const models = root.models.flatMap((model): CodexModel[] => {
-      const item = record(model);
-      const id = readString(item?.slug) ?? readString(item?.id) ?? readString(item?.model);
-      if (!id) {
-        return [];
-      }
-      const displayName = readString(item?.display_name) ?? readString(item?.displayName);
-      return [{ id, ...(displayName ? { displayName } : {}) }];
-    });
-    if (models.length === 0) {
-      throw new BridgeError(
-        "CODEX_MODEL_UNAVAILABLE",
-        `Codex returned no models for client version ${this.clientVersion}. Update Codex Bridge or set CODEX_BRIDGE_CODEX_CLIENT_VERSION to the installed Codex CLI version.`,
-        { statusCode: 503 }
-      );
-    }
-    return models;
   }
 
   private async withCredentialReload(

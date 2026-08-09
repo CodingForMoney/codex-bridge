@@ -9,7 +9,7 @@ import { codexSse } from "./helpers.js";
 test("converts Anthropic messages, tools, results, and encrypted reasoning", () => {
   const envelope = encodeReasoningEnvelope("reason_1", "encrypted-value");
   const converted = convertAnthropicRequest({
-    model: "gpt-test",
+    model: "gpt-5.6-sol",
     system: [{ type: "text", text: "system rule" }],
     reasoning_effort: "ultracode",
     tools: [{ name: "read_file", description: "Read", input_schema: { type: "object" } }],
@@ -26,7 +26,7 @@ test("converts Anthropic messages, tools, results, and encrypted reasoning", () 
     ]
   });
 
-  assert.equal(converted.responses.model, "gpt-test");
+  assert.equal(converted.responses.model, "gpt-5.6-sol");
   assert.equal(converted.responses.instructions, "system rule");
   assert.equal(converted.responses.reasoning.effort, "xhigh");
   assert.equal(converted.responses.store, false);
@@ -38,7 +38,7 @@ test("converts Anthropic messages, tools, results, and encrypted reasoning", () 
 
 test("enforces a named Anthropic tool choice using the Codex string contract", () => {
   const converted = convertAnthropicRequest({
-    model: "gpt-test",
+    model: "gpt-5.6-luna",
     messages: [{ role: "user", content: "run one tool" }],
     tools: [
       { name: "first", input_schema: { type: "object" } },

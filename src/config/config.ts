@@ -1,4 +1,5 @@
 import { BridgeError } from "../errors.js";
+import { resolveSupportedModel } from "../models.js";
 
 export interface BridgeConfig {
   host: string;
@@ -37,6 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, apiKey = ""): B
       { statusCode: 500 }
     );
   }
+  const modelOverride = env.CODEX_BRIDGE_MODEL?.trim();
   return {
     host: env.CODEX_BRIDGE_HOST?.trim() || "127.0.0.1",
     port,
@@ -44,7 +46,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, apiKey = ""): B
     ...(env.CODEX_HOME?.trim() ? { codexHome: env.CODEX_HOME.trim() } : {}),
     codexBaseUrl: (env.CODEX_BRIDGE_CODEX_BASE_URL?.trim() || "https://chatgpt.com/backend-api/codex").replace(/\/$/, ""),
     codexClientVersion: env.CODEX_BRIDGE_CODEX_CLIENT_VERSION?.trim() || "0.139.0",
-    ...(env.CODEX_BRIDGE_MODEL?.trim() ? { modelOverride: env.CODEX_BRIDGE_MODEL.trim() } : {}),
+    ...(modelOverride ? { modelOverride: resolveSupportedModel({ model: modelOverride }) } : {}),
     defaultEffort: env.CODEX_BRIDGE_DEFAULT_EFFORT?.trim() || "medium",
     bodyLimitBytes,
     logLevel

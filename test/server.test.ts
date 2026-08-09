@@ -19,9 +19,6 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
     async createResponse(request) {
       requests.push(request);
       return codexSse(completeTextEvents("bridge response"));
-    },
-    async listModels() {
-      return [{ id: "gpt-test", displayName: "GPT Test" }];
     }
   };
   const config: BridgeConfig = {
@@ -50,12 +47,15 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
     const headers = { "x-api-key": "local-secret", "content-type": "application/json" };
     const models = await fetch(`${running.url}/v1/models`, { headers });
     assert.equal(models.status, 200);
-    assert.equal((await models.json() as { data: unknown[] }).data.length, 1);
+    assert.deepEqual(
+      (await models.json() as { data: Array<{ id: string }> }).data.map((model) => model.id),
+      ["gpt-5.6-sol", "gpt-5.6-luna"]
+    );
 
     const count = await fetch(`${running.url}/v1/messages/count_tokens`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "gpt-test", messages: [{ role: "user", content: "hello" }] })
+      body: JSON.stringify({ model: "gpt-5.6-sol", messages: [{ role: "user", content: "hello" }] })
     });
     assert.equal(count.status, 200);
     assert.equal(typeof (await count.json() as { input_tokens: number }).input_tokens, "number");
@@ -63,12 +63,22 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
     const messages = await fetch(`${running.url}/v1/messages`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "gpt-test", max_tokens: 100, messages: [{ role: "user", content: "hello" }] })
+      body: JSON.stringify({ model: "gpt-5.6-luna", max_tokens: 100, messages: [{ role: "user", content: "hello" }] })
     });
     const message = await messages.json() as { content: Array<{ text?: string }> };
     assert.equal(message.content[0]?.text, "bridge response");
     assert.equal(requests[0]?.store, false);
+    assert.equal(requests[0]?.model, "gpt-5.6-luna");
     assert.deepEqual(requests[0]?.include, ["reasoning.encrypted_content"]);
+
+    const unsupported = await fetch(`${running.url}/v1/messages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ model: "gpt-5.5", messages: [{ role: "user", content: "hello" }] })
+    });
+    assert.equal(unsupported.status, 400);
+    assert.equal((await unsupported.json() as { error: { code: string } }).error.code, "CODEX_MODEL_UNAVAILABLE");
+    assert.equal(requests.length, 1);
 
     const status = await fetch(`${running.url}/auth/status`, { headers });
     assert.equal((await status.json() as { state: string }).state, "ready");
@@ -102,9 +112,6 @@ test("uses a refreshed API key on the next request without restarting", async ()
     codexClient: {
       async createResponse() {
         return codexSse(completeTextEvents());
-      },
-      async listModels() {
-        return [{ id: "gpt-test" }];
       }
     }
   });

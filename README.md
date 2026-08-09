@@ -40,11 +40,18 @@ bridge. This leaves normal Claude Code sessions unchanged:
 export CB_API_KEY="copy-the-key-printed-by-codex-bridge"
 ANTHROPIC_BASE_URL="http://127.0.0.1:3456" \
 ANTHROPIC_AUTH_TOKEN="$CB_API_KEY" \
-claude --model gpt-5.5
+claude --model gpt-5.6-sol
 ```
 
-The model must be available to the active Codex account. Run
-`codex-bridge doctor` or query `/v1/models` to inspect the current catalog.
+## Supported Models
+
+Codex Bridge supports exactly:
+
+- `gpt-5.6-sol`
+- `gpt-5.6-luna`
+
+`GET /v1/models` returns this fixed list. Requests for any other model fail
+with `CODEX_MODEL_UNAVAILABLE` before an upstream request is sent.
 
 ## CLI
 
@@ -59,8 +66,8 @@ codex-bridge --help
 
 - `serve` starts the local API.
 - `status` reports server reachability and redacted credential state.
-- `doctor` validates credentials and model discovery without sending a model
-  inference request.
+- `doctor` validates local credentials and reports the supported models without
+  sending a model inference request.
 - `key refresh` replaces the local Bridge API key and prints the new value.
 
 The running server reads the stored key for every protected request. A manual
@@ -108,12 +115,12 @@ billing or exact context-window accounting.
 | `CODEX_BRIDGE_HOST` | `127.0.0.1` | Bind address |
 | `CODEX_BRIDGE_PORT` | `3456` | Bind port |
 | `CODEX_HOME` | `~/.codex` | Existing Codex home |
-| `CODEX_BRIDGE_MODEL` | request model | Force one upstream model |
+| `CODEX_BRIDGE_MODEL` | request model | Force `gpt-5.6-sol` or `gpt-5.6-luna` |
 | `CODEX_BRIDGE_DEFAULT_EFFORT` | `medium` | Default reasoning effort |
 | `CODEX_BRIDGE_BODY_LIMIT_BYTES` | `33554432` | Maximum JSON request size |
 | `CODEX_BRIDGE_LOG_LEVEL` | `info` | `silent`, `error`, or `info` |
 | `CODEX_BRIDGE_CODEX_BASE_URL` | ChatGPT Codex backend | Adapter test/override URL |
-| `CODEX_BRIDGE_CODEX_CLIENT_VERSION` | `0.139.0` | Codex model-catalog compatibility version |
+| `CODEX_BRIDGE_CODEX_CLIENT_VERSION` | `0.139.0` | Private Codex backend client identity |
 
 Binding outside loopback exposes the bridge to other hosts that can reach the
 port. Use a strong client token and a trusted network. A containerized client

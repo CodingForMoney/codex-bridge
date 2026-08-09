@@ -3,8 +3,8 @@ import { CodexCredentialReader } from "../auth/credential-reader.js";
 import { BridgeApiKeyStore } from "../config/api-key-store.js";
 import { loadConfig } from "../config/config.js";
 import { asBridgeError, redactSecrets } from "../errors.js";
+import { SUPPORTED_MODELS } from "../models.js";
 import { startBridgeServer } from "../server/app.js";
-import { CodexClient } from "../upstream/codex-client.js";
 import { VERSION } from "../version.js";
 
 const args = process.argv.slice(2);
@@ -71,19 +71,13 @@ async function doctor(): Promise<void> {
   const credentialReader = new CodexCredentialReader({
     ...(config.codexHome ? { codexHome: config.codexHome } : {})
   });
-  const client = new CodexClient({
-    credentialReader,
-    baseUrl: config.codexBaseUrl,
-    clientVersion: config.codexClientVersion
-  });
   const auth = await credentialReader.status();
   if (auth.state !== "ready") {
     console.log(JSON.stringify({ ok: false, node: process.version, auth }, null, 2));
     process.exitCode = 1;
     return;
   }
-  const models = await client.listModels(AbortSignal.timeout(10_000));
-  console.log(JSON.stringify({ ok: true, node: process.version, auth, models: models.map((model) => model.id) }, null, 2));
+  console.log(JSON.stringify({ ok: true, node: process.version, auth, models: SUPPORTED_MODELS.map((model) => model.id) }, null, 2));
 }
 
 async function keyCommand(): Promise<void> {

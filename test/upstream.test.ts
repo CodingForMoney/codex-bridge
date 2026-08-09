@@ -10,7 +10,7 @@ import type { ResponsesRequest } from "../src/protocol/types.js";
 import { jwt, writeCodexAuth } from "./helpers.js";
 
 const request: ResponsesRequest = {
-  model: "gpt-test",
+  model: "gpt-5.6-sol",
   instructions: "test",
   input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
   tool_choice: "auto",
@@ -72,19 +72,19 @@ test("returns actionable unauthorized error without retrying an unchanged token"
   assert.equal(calls, 1);
 });
 
-test("discovers Codex models using first-party headers", async () => {
-  const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-models-"));
+test("sends responses using first-party Codex headers", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-headers-"));
   const token = await writeCodexAuth(home, { accountId: "account-model" });
   let observed = new Headers();
   const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
     observed = new Headers(init?.headers);
-    return Response.json({ models: [{ slug: "gpt-a", display_name: "GPT A" }] });
+    return new Response("ok");
   }) as typeof fetch;
   const client = new CodexClient({
     credentialReader: new CodexCredentialReader({ codexHome: home }),
     fetchImpl
   });
-  assert.deepEqual(await client.listModels(), [{ id: "gpt-a", displayName: "GPT A" }]);
+  assert.equal((await client.createResponse(request)).status, 200);
   assert.equal(observed.get("authorization"), `Bearer ${token}`);
   assert.equal(observed.get("chatgpt-account-id"), "account-model");
   assert.equal(observed.get("originator"), "codex_cli_rs");

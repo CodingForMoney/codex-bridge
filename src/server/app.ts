@@ -7,11 +7,11 @@ import { convertAnthropicRequest } from "../protocol/anthropic-request.js";
 import { collectCodexResponse } from "../protocol/anthropic-response.js";
 import { streamCodexAsAnthropic } from "../protocol/anthropic-stream.js";
 import { estimateAnthropicInputTokens } from "../protocol/token-count.js";
+import { resolveSupportedModel, SUPPORTED_MODELS } from "../models.js";
 import { CodexClient } from "../upstream/codex-client.js";
 
 export interface CodexClientLike {
   createResponse(request: Parameters<CodexClient["createResponse"]>[0], signal?: AbortSignal): Promise<Response>;
-  listModels(signal?: AbortSignal): ReturnType<CodexClient["listModels"]>;
 }
 
 export interface BridgeApiKeyProvider {
@@ -91,10 +91,9 @@ async function handleRequest(
       return;
     }
     if (request.method === "GET" && url.pathname === "/v1/models") {
-      const models = await codexClient.listModels(controller.signal);
       json(response, 200, {
         object: "list",
-        data: models.map((model) => ({
+        data: SUPPORTED_MODELS.map((model) => ({
           id: model.id,
           object: "model",
           created: 0,
@@ -106,6 +105,7 @@ async function handleRequest(
     }
     if (request.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
       const body = await readJson(request, config.bodyLimitBytes);
+      resolveSupportedModel(body, config.modelOverride);
       json(response, 200, estimateAnthropicInputTokens(body));
       return;
     }
