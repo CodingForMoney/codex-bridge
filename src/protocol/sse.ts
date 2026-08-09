@@ -7,7 +7,10 @@ export interface SseEvent {
 
 const MAX_EVENT_BYTES = 16 * 1024 * 1024;
 
-export async function* parseSseStream(body: ReadableStream<Uint8Array> | null): AsyncGenerator<SseEvent> {
+export async function* parseSseStream(
+  body: ReadableStream<Uint8Array> | null,
+  signal?: AbortSignal
+): AsyncGenerator<SseEvent> {
   if (!body) {
     throw new BridgeError("PROTOCOL_RESPONSE_INVALID", "Codex response did not contain a stream body.", {
       statusCode: 502
@@ -16,6 +19,14 @@ export async function* parseSseStream(body: ReadableStream<Uint8Array> | null): 
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  const abort = () => {
+    void reader.cancel(signal?.reason).catch(() => undefined);
+  };
+  if (signal?.aborted) {
+    abort();
+  } else {
+    signal?.addEventListener("abort", abort, { once: true });
+  }
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -44,6 +55,7 @@ export async function* parseSseStream(body: ReadableStream<Uint8Array> | null): 
       yield trailing;
     }
   } finally {
+    signal?.removeEventListener("abort", abort);
     reader.releaseLock();
   }
 }

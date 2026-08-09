@@ -76,6 +76,20 @@ test("continues to reject unknown message roles", () => {
   );
 });
 
+test("rejects reasoning efforts unsupported by the GPT-5.6 Responses API", () => {
+  for (const effort of ["minimal", "ultra"]) {
+    assert.throws(
+      () =>
+        convertAnthropicRequest({
+          model: "gpt-5.6-sol",
+          reasoning_effort: effort,
+          messages: [{ role: "user", content: "hello" }]
+        }),
+      new RegExp(`Unsupported reasoning effort: ${effort}`)
+    );
+  }
+});
+
 test("enforces a named Anthropic tool choice using the Codex string contract", () => {
   const converted = convertAnthropicRequest({
     model: "gpt-5.6-luna",

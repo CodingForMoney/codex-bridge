@@ -9,7 +9,7 @@ import type {
   ResponsesRequest
 } from "./types.js";
 
-const SUPPORTED_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+const SUPPORTED_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
 
 export function convertAnthropicRequest(
   value: unknown,

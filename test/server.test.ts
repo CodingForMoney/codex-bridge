@@ -133,3 +133,77 @@ test("uses a refreshed API key on the next request without restarting", async ()
     await running.close();
   }
 });
+
+test("aborts and cancels the upstream stream when the client disconnects", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-disconnect-"));
+  await writeCodexAuth(home);
+  let upstreamAborted = false;
+  let upstreamCancelled = false;
+  const encoder = new TextEncoder();
+  const config: BridgeConfig = {
+    host: "127.0.0.1",
+    port: 0,
+    apiKey: "local-secret",
+    codexHome: home,
+    codexBaseUrl: "https://example.invalid",
+    codexClientVersion: "0.139.0",
+    defaultEffort: "medium",
+    bodyLimitBytes: 1024 * 1024,
+    logLevel: "silent"
+  };
+  const running = await startBridgeServer({
+    config,
+    credentialReader: new CodexCredentialReader({ codexHome: home }),
+    codexClient: {
+      async createResponse(_request, signal) {
+        signal?.addEventListener("abort", () => {
+          upstreamAborted = true;
+        }, { once: true });
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(
+              'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_disconnect"}}\n\n'
+            ));
+          },
+          cancel() {
+            upstreamCancelled = true;
+          }
+        });
+        return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+    }
+  });
+  try {
+    const controller = new AbortController();
+    const response = await fetch(`${running.url}/v1/messages`, {
+      method: "POST",
+      headers: { "x-api-key": "local-secret", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.6-sol",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }]
+      }),
+      signal: controller.signal
+    });
+    const reader = response.body?.getReader();
+    assert.ok(reader);
+    assert.equal((await reader.read()).done, false);
+    await reader.cancel("test client disconnect");
+    controller.abort();
+
+    await waitFor(() => upstreamAborted && upstreamCancelled);
+    assert.equal((await fetch(`${running.url}/health`)).status, 200);
+  } finally {
+    await running.close();
+  }
+});
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      assert.fail("Timed out waiting for the expected server state.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}

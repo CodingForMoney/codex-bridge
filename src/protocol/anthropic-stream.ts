@@ -12,11 +12,12 @@ interface OpenBlock {
 
 export async function* streamCodexAsAnthropic(
   body: ReadableStream<Uint8Array> | null,
-  model: string
+  model: string,
+  signal?: AbortSignal
 ): AsyncGenerator<string> {
   const state = new AnthropicStreamState(model);
   try {
-    for await (const frame of parseSseStream(body)) {
+    for await (const frame of parseSseStream(body, signal)) {
       if (frame.data === "[DONE]") {
         continue;
       }
@@ -28,6 +29,9 @@ export async function* streamCodexAsAnthropic(
       yield event;
     }
   } catch (error) {
+    if (signal?.aborted) {
+      return;
+    }
     yield encodeSse("error", toAnthropicErrorBody(asBridgeError(error)));
   }
 }

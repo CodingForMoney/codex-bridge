@@ -73,6 +73,7 @@ async function handleRequest(
 ): Promise<void> {
   const controller = new AbortController();
   request.once("aborted", () => controller.abort());
+  response.once("error", () => controller.abort());
   response.once("close", () => {
     if (!response.writableEnded) {
       controller.abort();
@@ -123,12 +124,27 @@ async function handleRequest(
           connection: "keep-alive",
           "x-accel-buffering": "no"
         });
-        for await (const event of streamCodexAsAnthropic(upstream.body, converted.requestedModel)) {
-          if (!response.write(event)) {
-            await once(response, "drain");
+        try {
+          for await (const event of streamCodexAsAnthropic(
+            upstream.body,
+            converted.requestedModel,
+            controller.signal
+          )) {
+            if (!responseWritable(response, controller.signal)) {
+              return;
+            }
+            if (!response.write(event) && !(await waitForDrain(response, controller.signal))) {
+              return;
+            }
+          }
+        } finally {
+          if (controller.signal.aborted) {
+            await upstream.body?.cancel().catch(() => undefined);
           }
         }
-        response.end();
+        if (responseWritable(response, controller.signal)) {
+          response.end();
+        }
       } else {
         const message = await collectCodexResponse(upstream.body, converted.requestedModel);
         json(response, 200, message);
@@ -152,6 +168,25 @@ async function handleRequest(
     } else {
       response.end();
     }
+  }
+}
+
+function responseWritable(response: ServerResponse, signal: AbortSignal): boolean {
+  return !signal.aborted && !response.destroyed && !response.writableEnded;
+}
+
+async function waitForDrain(response: ServerResponse, signal: AbortSignal): Promise<boolean> {
+  if (!responseWritable(response, signal)) {
+    return false;
+  }
+  try {
+    await once(response, "drain", { signal });
+    return responseWritable(response, signal);
+  } catch (error) {
+    if (!responseWritable(response, signal)) {
+      return false;
+    }
+    throw error;
   }
 }
 
