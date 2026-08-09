@@ -36,6 +36,46 @@ test("converts Anthropic messages, tools, results, and encrypted reasoning", () 
   assert.equal(converted.responses.input.some((item) => item.type === "function_call_output"), true);
 });
 
+test("promotes system-role messages to Responses instructions", () => {
+  const converted = convertAnthropicRequest({
+    model: "gpt-5.6-sol",
+    messages: [
+      { role: "system", content: "first rule" },
+      { role: "user", content: "hello" },
+      { role: "system", content: [{ type: "text", text: "second rule" }] }
+    ]
+  });
+
+  assert.equal(converted.responses.instructions, "first rule\nsecond rule");
+  assert.deepEqual(converted.responses.input, [
+    { type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] }
+  ]);
+});
+
+test("places top-level system instructions before system-role messages", () => {
+  const converted = convertAnthropicRequest({
+    model: "gpt-5.6-luna",
+    system: "top-level rule",
+    messages: [
+      { role: "system", content: "message rule" },
+      { role: "user", content: "hello" }
+    ]
+  });
+
+  assert.equal(converted.responses.instructions, "top-level rule\nmessage rule");
+});
+
+test("continues to reject unknown message roles", () => {
+  assert.throws(
+    () =>
+      convertAnthropicRequest({
+        model: "gpt-5.6-sol",
+        messages: [{ role: "developer", content: "rule" }, { role: "user", content: "hello" }]
+      }),
+    /Unsupported Anthropic message role: developer/
+  );
+});
+
 test("enforces a named Anthropic tool choice using the Codex string contract", () => {
   const converted = convertAnthropicRequest({
     model: "gpt-5.6-luna",

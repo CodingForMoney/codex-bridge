@@ -63,12 +63,20 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
     const messages = await fetch(`${running.url}/v1/messages`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "gpt-5.6-luna", max_tokens: 100, messages: [{ role: "user", content: "hello" }] })
+      body: JSON.stringify({
+        model: "gpt-5.6-luna",
+        max_tokens: 100,
+        messages: [
+          { role: "system", content: "server system rule" },
+          { role: "user", content: "hello" }
+        ]
+      })
     });
     const message = await messages.json() as { content: Array<{ text?: string }> };
     assert.equal(message.content[0]?.text, "bridge response");
     assert.equal(requests[0]?.store, false);
     assert.equal(requests[0]?.model, "gpt-5.6-luna");
+    assert.equal(requests[0]?.instructions, "server system rule");
     assert.deepEqual(requests[0]?.include, ["reasoning.encrypted_content"]);
 
     const unsupported = await fetch(`${running.url}/v1/messages`, {

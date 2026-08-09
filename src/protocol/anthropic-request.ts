@@ -38,8 +38,9 @@ export function convertAnthropicRequest(
     ...(value.thinking !== undefined ? { thinking: value.thinking } : {})
   };
 
-  const instructions = extractSystem(value.system) || "You are a helpful assistant.";
-  const input = convertMessages(value.messages);
+  const convertedMessages = convertMessages(value.messages);
+  const instructions = mergeInstructions(extractSystem(value.system), convertedMessages.instructions);
+  const input = convertedMessages.input;
   if (input.length === 0) {
     throw invalidRequest("Anthropic Messages request contains no supported message content.");
   }
@@ -67,19 +68,30 @@ export function convertAnthropicRequest(
   return { anthropic, responses, requestedModel: model };
 }
 
-function convertMessages(messages: unknown[]): Array<Record<string, unknown>> {
+function convertMessages(messages: unknown[]): {
+  input: Array<Record<string, unknown>>;
+  instructions: string[];
+} {
   const input: Array<Record<string, unknown>> = [];
+  const instructions: string[] = [];
   for (const message of messages) {
     if (!isRecord(message)) {
       throw invalidRequest("Each Anthropic message must be an object.");
     }
     const role = readString(message.role);
+    if (role === "system") {
+      const instruction = extractSystem(message.content);
+      if (instruction) {
+        instructions.push(instruction);
+      }
+      continue;
+    }
     if (role !== "user" && role !== "assistant") {
       throw invalidRequest(`Unsupported Anthropic message role: ${role ?? "missing"}.`);
     }
     convertMessageContent(role, message.content, input);
   }
-  return input;
+  return { input, instructions };
 }
 
 function convertMessageContent(
@@ -311,6 +323,11 @@ function extractSystem(value: unknown): string | undefined {
     }
   }
   return parts.join("\n").trim() || undefined;
+}
+
+function mergeInstructions(topLevel: string | undefined, messageLevel: string[]): string {
+  return [topLevel, ...messageLevel].filter((value): value is string => Boolean(value)).join("\n") ||
+    "You are a helpful assistant.";
 }
 
 function resolveEffort(body: Record<string, unknown>, fallback = "medium"): string {
