@@ -1,5 +1,5 @@
 {
-  "name": "@luoxm/codex-bridge",
+  "name": "codex-anthropic-bridge",
   "version": "0.1.0",
   "description": "A local Anthropic-compatible API bridge for an existing Codex login.",
   "type": "module",

@@ -24,7 +24,7 @@ If Codex stores credentials only in an OS keyring, the first release reports
 ## Start The Bridge
 
 ```bash
-npm install --global @luoxm/codex-bridge
+npm install --global codex-anthropic-bridge
 codex-bridge serve
 ```
 
