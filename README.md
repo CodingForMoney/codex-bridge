@@ -63,8 +63,15 @@ const response = await client.responses.create({
 
 Codex Bridge supports exactly:
 
-- `gpt-5.6-sol`
-- `gpt-5.6-luna`
+| Model | Maximum context window | Effective context window |
+| --- | ---: | ---: |
+| `gpt-5.6-sol` | 272,000 tokens | approximately 258,400 tokens |
+| `gpt-5.6-luna` | 272,000 tokens | approximately 258,400 tokens |
+
+The effective window is 95% of the maximum window according to the current
+Codex model metadata. These limits are controlled by the upstream model and may
+change when Codex updates its model catalog; Codex Bridge does not override or
+independently enforce them.
 
 `GET /v1/models` returns this fixed list. Requests for any other model fail
 with `CODEX_MODEL_UNAVAILABLE` before an upstream request is sent.
