@@ -6,10 +6,10 @@ import test from "node:test";
 import { CodexCredentialReader } from "../src/auth/credential-reader.js";
 import { BridgeError } from "../src/errors.js";
 import { CodexClient } from "../src/upstream/codex-client.js";
-import type { ResponsesRequest } from "../src/protocol/types.js";
+import type { CodexResponsesRequest } from "../src/protocol/types.js";
 import { jwt, writeCodexAuth } from "./helpers.js";
 
-const request: ResponsesRequest = {
+const request: CodexResponsesRequest = {
   model: "gpt-5.6-sol",
   instructions: "test",
   input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],

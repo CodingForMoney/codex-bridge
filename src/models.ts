@@ -10,7 +10,7 @@ const SUPPORTED_MODEL_IDS = new Set<string>(SUPPORTED_MODELS.map((model) => mode
 export function resolveSupportedModel(value: unknown, override?: string): string {
   const requested = override?.trim() || requestModel(value);
   if (!requested) {
-    throw new BridgeError("PROTOCOL_REQUEST_INVALID", "Anthropic Messages request requires a model.", {
+    throw new BridgeError("PROTOCOL_REQUEST_INVALID", "Request requires a model.", {
       statusCode: 400
     });
   }

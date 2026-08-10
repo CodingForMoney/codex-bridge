@@ -1,9 +1,9 @@
 # Codex Bridge
 
-Codex Bridge is a focused local Anthropic-compatible API bridge for an existing
-Codex login. It lets clients such as Claude Code send supported Messages API
-requests to Codex-backed models without changing Claude Code settings or
-copying Codex OAuth credentials into another tool.
+Codex Bridge is a focused local Anthropic Messages and OpenAI Responses API
+bridge for an existing Codex login. It lets clients send supported requests to
+Codex-backed models without changing Claude Code settings or copying Codex
+OAuth credentials into another tool.
 
 Codex Bridge is intentionally not a provider router. It does not launch Claude
 Code, edit `~/.claude`, refresh OAuth tokens, or manage multiple providers.
@@ -41,6 +41,22 @@ export CB_API_KEY="copy-the-key-printed-by-codex-bridge"
 ANTHROPIC_BASE_URL="http://127.0.0.1:3456" \
 ANTHROPIC_AUTH_TOKEN="$CB_API_KEY" \
 claude --model gpt-5.6-sol
+```
+
+OpenAI Responses clients can use the same server and key:
+
+```javascript
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.CB_API_KEY,
+  baseURL: "http://127.0.0.1:3456/v1"
+});
+
+const response = await client.responses.create({
+  model: "gpt-5.6-sol",
+  input: "Hello"
+});
 ```
 
 ## Supported Models
@@ -84,6 +100,7 @@ The bridge exposes:
 
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
+- `POST /v1/responses`
 - `GET /v1/models`
 - `GET /auth/status`
 - `GET /health`
@@ -103,6 +120,18 @@ Authorization: Bearer <printed Codex Bridge API key>
 Messages support text, image inputs, tools, tool results, streaming, reasoning
 effort, usage, and Codex encrypted reasoning continuity. Unsupported required
 content returns an explicit compatibility error.
+
+Responses support string or item-array input, text and image URL content,
+function tools and results, encrypted reasoning history, structured text
+configuration, and streaming or non-streaming output. The upstream request is
+always stateless and streamed internally; non-streaming client requests are
+assembled from the terminal Responses event.
+
+The Responses endpoint implements the supported Codex subset rather than the
+entire OpenAI platform API. It requires `store: false` when `store` is supplied
+and rejects background mode, server-side conversation continuation, hosted
+tools, file inputs, and unsupported include or reasoning options. Send complete
+input history, including encrypted reasoning items, for stateless continuation.
 
 `/v1/messages/count_tokens` is a conservative compatibility estimate. The
 private Codex backend exposes no tokenizer endpoint, so it must not be used for

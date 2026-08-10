@@ -89,3 +89,14 @@ export function toAnthropicErrorBody(error: BridgeError): Record<string, unknown
     }
   };
 }
+
+export function toOpenAiErrorBody(error: BridgeError): Record<string, unknown> {
+  return {
+    error: {
+      message: redactSecrets(error.message),
+      type: anthropicErrorType(error),
+      param: null,
+      code: error.code
+    }
+  };
+}

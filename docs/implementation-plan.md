@@ -2,8 +2,8 @@
 
 ## 1. Objective
 
-Build a focused local gateway that exposes Codex-backed models through an
-Anthropic-compatible API for clients such as Claude Code and VibeCodingMaster.
+Build a focused local gateway that exposes Codex-backed models through supported
+Anthropic Messages and OpenAI Responses APIs.
 
 Codex Bridge will:
 
@@ -12,6 +12,8 @@ Codex Bridge will:
 - read the existing local Codex OAuth credentials
 - translate supported Anthropic Messages requests to the Codex Responses API
 - translate Codex responses and streams back to Anthropic-compatible responses
+- validate and forward the supported OpenAI Responses subset without an
+  unnecessary protocol translation
 - support only `gpt-5.6-sol` and `gpt-5.6-luna`
 - run as a local service with no remote management dependency
 
@@ -66,6 +68,7 @@ Initial endpoints:
 
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
+- `POST /v1/responses`
 - `GET /v1/models`
 - `GET /health`
 - `GET /auth/status`
@@ -95,6 +98,14 @@ Unknown fields should be ignored only when they are optional. Unsupported
 required behavior must return an explicit compatibility error rather than a
 partial or fabricated response.
 
+The OpenAI Responses compatibility layer accepts only behavior verified for the
+private Codex backend. It supports text, image URLs, function tools and results,
+encrypted reasoning history, structured text configuration, and streaming or
+non-streaming clients. It forces stateless upstream operation with `store:
+false` and upstream streaming. Stateful response storage, background mode,
+server-side conversation continuation, hosted tools, and file inputs fail with
+an explicit compatibility error.
+
 The Codex backend used by ChatGPT-authenticated Codex clients is not documented
 as a stable public third-party API. Upstream request headers, models, event
 formats, and endpoints must therefore be isolated behind a versioned adapter.
@@ -113,6 +124,8 @@ src/
     anthropic-request.ts
     anthropic-response.ts
     anthropic-stream.ts
+    responses-request.ts
+    responses-response.ts
     reasoning-envelope.ts
     sse.ts
     token-count.ts
@@ -137,6 +150,9 @@ Primary components:
 - The protocol modules convert requests, responses, streaming events, tools,
   encrypted reasoning, and errors without containing credential or server
   concerns.
+- The Responses request module validates the supported native subset and
+  normalizes it to the private Codex contract. The Responses response module
+  collects upstream SSE only when a client requested a non-streaming response.
 - `LocalServer` handles local client authentication, request cancellation,
   endpoint validation, and graceful shutdown.
 - `CLI` exposes `serve`, `status`, and `doctor` without modifying external tools.
@@ -233,6 +249,8 @@ outside the initial scope.
 - credentials replaced after an upstream 401
 - no retry when the credential is unchanged
 - request and response block conversion
+- native Responses request validation and normalization
+- native Responses non-streaming terminal response collection
 - tool-call and tool-result conversion
 - streaming event ordering and termination
 - stable error mapping
@@ -243,6 +261,9 @@ outside the initial scope.
 ### Integration tests
 
 - local HTTP endpoints and client authentication
+- Anthropic Messages and OpenAI Responses coexistence on one server
+- native Responses streaming passthrough and non-streaming collection
+- OpenAI-compatible error envelopes on Responses routes
 - streaming cancellation and client disconnects
 - fixed model-list response and model rejection before upstream dispatch
 - mocked Codex 401, 429, 5xx, malformed stream, and network failure
@@ -253,6 +274,7 @@ outside the initial scope.
 - Claude Code basic text exchange
 - Claude Code tool use
 - long streaming response
+- native OpenAI Responses streaming and non-streaming requests
 - Codex credential expiration followed by a user-driven Codex refresh
 - VibeCodingMaster session using a bridge model
 - normal Claude Code model startup after bridge use
@@ -269,11 +291,12 @@ Real Codex credentials must never be used in automated CI.
 - health, status, and model endpoints
 - mocked upstream test harness
 
-### Stage 2: Anthropic Compatibility
+### Stage 2: Protocol Compatibility
 
 - non-streaming Messages conversion
 - streaming conversion
 - tool-use conversion
+- native Responses request validation and response handling
 - error and cancellation behavior
 
 ### Stage 3: Client Validation
@@ -294,6 +317,7 @@ Real Codex credentials must never be used in automated CI.
 The first release is complete when:
 
 - Claude Code can complete text and tool-use requests through Codex Bridge
+- native Responses clients can complete streaming and non-streaming requests
 - VibeCodingMaster can select the bridge without persistent Claude changes
 - normal Claude Code providers remain unaffected
 - replacing the Codex credential is observed on the next request

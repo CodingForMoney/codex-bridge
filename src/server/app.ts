@@ -1,11 +1,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { asBridgeError, BridgeError, toAnthropicErrorBody } from "../errors.js";
+import { asBridgeError, BridgeError, toAnthropicErrorBody, toOpenAiErrorBody } from "../errors.js";
 import { CodexCredentialReader } from "../auth/credential-reader.js";
 import type { BridgeConfig } from "../config/config.js";
 import { convertAnthropicRequest } from "../protocol/anthropic-request.js";
 import { collectCodexResponse } from "../protocol/anthropic-response.js";
 import { streamCodexAsAnthropic } from "../protocol/anthropic-stream.js";
+import { convertResponsesRequest } from "../protocol/responses-request.js";
+import { collectCodexResponsesResponse } from "../protocol/responses-response.js";
 import { estimateAnthropicInputTokens } from "../protocol/token-count.js";
 import { resolveSupportedModel, SUPPORTED_MODELS } from "../models.js";
 import { CodexClient } from "../upstream/codex-client.js";
@@ -72,6 +74,7 @@ async function handleRequest(
   apiKeyProvider: BridgeApiKeyProvider
 ): Promise<void> {
   const controller = new AbortController();
+  let errorFormat: "anthropic" | "openai" = "anthropic";
   request.once("aborted", () => controller.abort());
   response.once("error", () => controller.abort());
   response.once("close", () => {
@@ -81,6 +84,9 @@ async function handleRequest(
   });
   try {
     const url = new URL(request.url ?? "/", "http://codex-bridge.local");
+    if (url.pathname === "/v1/responses" || url.pathname === "/v1/models") {
+      errorFormat = "openai";
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       json(response, 200, { status: "ok", service: "codex-bridge" });
       return;
@@ -151,8 +157,30 @@ async function handleRequest(
       }
       return;
     }
+    if (request.method === "POST" && url.pathname === "/v1/responses") {
+      const body = await readJson(request, config.bodyLimitBytes);
+      const converted = convertResponsesRequest(body, {
+        defaultEffort: config.defaultEffort,
+        ...(config.modelOverride ? { modelOverride: config.modelOverride } : {})
+      });
+      const upstream = await codexClient.createResponse(converted.responses, controller.signal);
+      if (!upstream.body) {
+        throw missingUpstreamBody();
+      }
+      if (converted.clientStream) {
+        response.writeHead(200, eventStreamHeaders());
+        await pipeResponsesStream(upstream.body, response, controller.signal);
+        if (responseWritable(response, controller.signal)) {
+          response.end();
+        }
+      } else {
+        const completed = await collectCodexResponsesResponse(upstream.body, controller.signal);
+        json(response, 200, completed);
+      }
+      return;
+    }
 
-    if (["/auth/status", "/v1/models", "/v1/messages", "/v1/messages/count_tokens"].includes(url.pathname)) {
+    if (["/auth/status", "/v1/models", "/v1/messages", "/v1/messages/count_tokens", "/v1/responses"].includes(url.pathname)) {
       throw new BridgeError("BRIDGE_METHOD_NOT_ALLOWED", `Method ${request.method ?? "unknown"} is not allowed for ${url.pathname}.`, {
         statusCode: 405
       });
@@ -164,11 +192,66 @@ async function handleRequest(
     }
     const bridgeError = asBridgeError(error);
     if (!response.headersSent) {
-      json(response, bridgeError.statusCode, toAnthropicErrorBody(bridgeError));
+      json(
+        response,
+        bridgeError.statusCode,
+        errorFormat === "openai" ? toOpenAiErrorBody(bridgeError) : toAnthropicErrorBody(bridgeError)
+      );
     } else {
       response.end();
     }
   }
+}
+
+function eventStreamHeaders(): Record<string, string> {
+  return {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no"
+  };
+}
+
+async function pipeResponsesStream(
+  body: ReadableStream<Uint8Array>,
+  response: ServerResponse,
+  signal: AbortSignal
+): Promise<void> {
+  const reader = body.getReader();
+  let cancellation: Promise<void> | undefined;
+  const cancel = () => {
+    cancellation ??= reader.cancel(signal.reason).catch(() => undefined);
+  };
+  if (signal.aborted) {
+    cancel();
+  } else {
+    signal.addEventListener("abort", cancel, { once: true });
+  }
+  try {
+    while (responseWritable(response, signal)) {
+      const { done, value } = await reader.read();
+      if (done) {
+        return;
+      }
+      if (!response.write(value) && !(await waitForDrain(response, signal))) {
+        cancel();
+        return;
+      }
+    }
+    cancel();
+  } finally {
+    signal.removeEventListener("abort", cancel);
+    if (cancellation) {
+      await cancellation;
+    }
+    reader.releaseLock();
+  }
+}
+
+function missingUpstreamBody(): BridgeError {
+  return new BridgeError("PROTOCOL_RESPONSE_INVALID", "Codex response did not contain a stream body.", {
+    statusCode: 502
+  });
 }
 
 function responseWritable(response: ServerResponse, signal: AbortSignal): boolean {

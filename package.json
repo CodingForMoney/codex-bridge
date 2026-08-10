@@ -1,7 +1,7 @@
 {
   "name": "codex-anthropic-bridge",
   "version": "0.1.3",
-  "description": "A local Anthropic-compatible API bridge for an existing Codex login.",
+  "description": "A local Anthropic Messages and OpenAI Responses API bridge for an existing Codex login.",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",

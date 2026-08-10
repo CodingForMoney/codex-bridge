@@ -6,7 +6,7 @@ import test from "node:test";
 import { CodexCredentialReader } from "../src/auth/credential-reader.js";
 import type { BridgeConfig } from "../src/config/config.js";
 import { startBridgeServer, type CodexClientLike } from "../src/server/app.js";
-import type { ResponsesRequest } from "../src/protocol/types.js";
+import type { CodexResponsesRequest } from "../src/protocol/types.js";
 import { codexSse, completeTextEvents, writeCodexAuth } from "./helpers.js";
 
 test("serves authenticated Anthropic-compatible endpoints without writing Codex auth", async () => {
@@ -14,7 +14,7 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
   await writeCodexAuth(home);
   const authPath = path.join(home, "auth.json");
   const before = await stat(authPath);
-  const requests: ResponsesRequest[] = [];
+  const requests: CodexResponsesRequest[] = [];
   const client: CodexClientLike = {
     async createResponse(request) {
       requests.push(request);

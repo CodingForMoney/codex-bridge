@@ -6,10 +6,9 @@ import type {
   AnthropicMessageRequest,
   ConvertedRequest,
   RequestConversionOptions,
-  ResponsesRequest
+  CodexResponsesRequest
 } from "./types.js";
-
-const SUPPORTED_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
+import { normalizeReasoningEffort } from "./responses-request.js";
 
 export function convertAnthropicRequest(
   value: unknown,
@@ -48,7 +47,7 @@ export function convertAnthropicRequest(
   const tools = convertTools(value.tools);
   const toolSelection = convertToolChoice(value.tool_choice, tools);
   const effort = resolveEffort(value, options.defaultEffort);
-  const responses: ResponsesRequest = {
+  const responses: CodexResponsesRequest & { input: Array<Record<string, unknown>> } = {
     model,
     instructions,
     input,
@@ -333,14 +332,10 @@ function mergeInstructions(topLevel: string | undefined, messageLevel: string[])
 function resolveEffort(body: Record<string, unknown>, fallback = "medium"): string {
   const outputConfig = isRecord(body.output_config) ? body.output_config : undefined;
   const raw = readString(outputConfig?.effort) ?? readString(body.reasoning_effort) ?? fallback;
-  const normalized = raw.toLowerCase() === "ultracode" ? "xhigh" : raw.toLowerCase();
-  if (!SUPPORTED_EFFORTS.has(normalized)) {
-    throw invalidRequest(`Unsupported reasoning effort: ${raw}.`);
-  }
-  return normalized;
+  return normalizeReasoningEffort(raw);
 }
 
-function convertTextOptions(value: unknown): Pick<ResponsesRequest, "text"> | Record<string, never> {
+function convertTextOptions(value: unknown): Pick<CodexResponsesRequest, "text"> | Record<string, never> {
   if (!isRecord(value)) {
     return {};
   }

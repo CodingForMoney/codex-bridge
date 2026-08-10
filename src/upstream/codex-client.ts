@@ -1,7 +1,7 @@
 import { BridgeError, redactSecrets } from "../errors.js";
 import type { CodexCredential } from "../auth/credential-status.js";
 import { CodexCredentialReader } from "../auth/credential-reader.js";
-import type { ResponsesRequest } from "../protocol/types.js";
+import type { CodexResponsesRequest } from "../protocol/types.js";
 
 export interface CodexClientOptions {
   credentialReader: CodexCredentialReader;
@@ -21,7 +21,7 @@ export class CodexClient {
     this.clientVersion = options.clientVersion ?? "0.139.0";
   }
 
-  async createResponse(request: ResponsesRequest, signal?: AbortSignal): Promise<Response> {
+  async createResponse(request: CodexResponsesRequest, signal?: AbortSignal): Promise<Response> {
     return this.withCredentialReload((credential) =>
       this.request("responses", credential, {
         method: "POST",

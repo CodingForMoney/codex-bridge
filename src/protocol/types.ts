@@ -12,10 +12,10 @@ export interface AnthropicMessageRequest {
   thinking?: unknown;
 }
 
-export interface ResponsesRequest {
+export interface CodexResponsesRequest {
   model: string;
   instructions: string;
-  input: Array<Record<string, unknown>>;
+  input: string | Array<Record<string, unknown>>;
   tools?: Array<Record<string, unknown>>;
   tool_choice: string;
   parallel_tool_calls: boolean;
@@ -25,7 +25,7 @@ export interface ResponsesRequest {
   };
   store: false;
   stream: true;
-  include: ["reasoning.encrypted_content"];
+  include: string[];
   prompt_cache_key: string;
   text?: Record<string, unknown>;
 }
@@ -37,6 +37,6 @@ export interface RequestConversionOptions {
 
 export interface ConvertedRequest {
   anthropic: AnthropicMessageRequest;
-  responses: ResponsesRequest;
+  responses: CodexResponsesRequest & { input: Array<Record<string, unknown>> };
   requestedModel: string;
 }
