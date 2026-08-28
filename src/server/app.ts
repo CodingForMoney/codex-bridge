@@ -6,14 +6,22 @@ import type { BridgeConfig } from "../config/config.js";
 import { convertAnthropicRequest } from "../protocol/anthropic-request.js";
 import { collectCodexResponse } from "../protocol/anthropic-response.js";
 import { streamCodexAsAnthropic } from "../protocol/anthropic-stream.js";
-import { convertResponsesRequest } from "../protocol/responses-request.js";
-import { collectCodexResponsesResponse } from "../protocol/responses-response.js";
+import { pipeOpaqueCompactResponse } from "../protocol/responses-compact.js";
+import {
+  convertResponsesCompactRequest,
+  convertResponsesRequest
+} from "../protocol/responses-request.js";
+import {
+  collectCodexResponsesResponse,
+  normalizeCodexResponsesStream
+} from "../protocol/responses-response.js";
 import { estimateAnthropicInputTokens } from "../protocol/token-count.js";
 import { resolveSupportedModel, SUPPORTED_MODELS } from "../models.js";
 import { CodexClient } from "../upstream/codex-client.js";
 
 export interface CodexClientLike {
   createResponse(request: Parameters<CodexClient["createResponse"]>[0], signal?: AbortSignal): Promise<Response>;
+  compactResponse?(request: Parameters<CodexClient["compactResponse"]>[0], signal?: AbortSignal): Promise<Response>;
 }
 
 export interface BridgeApiKeyProvider {
@@ -84,11 +92,23 @@ async function handleRequest(
   });
   try {
     const url = new URL(request.url ?? "/", "http://codex-bridge.local");
-    if (url.pathname === "/v1/responses" || url.pathname === "/v1/models") {
+    if (
+      url.pathname === "/v1/responses" ||
+      url.pathname === "/v1/responses/compact" ||
+      url.pathname === "/v1/models"
+    ) {
       errorFormat = "openai";
     }
     if (request.method === "GET" && url.pathname === "/health") {
-      json(response, 200, { status: "ok", service: "codex-bridge" });
+      json(response, 200, {
+        status: "ok",
+        service: "codex-bridge",
+        capabilities: {
+          anthropic_messages: true,
+          responses: true,
+          responses_compact: true
+        }
+      });
       return;
     }
     authenticate(request, await apiKeyProvider.read());
@@ -179,8 +199,51 @@ async function handleRequest(
       }
       return;
     }
+    if (request.method === "POST" && url.pathname === "/v1/responses/compact") {
+      const body = await readJson(request, config.bodyLimitBytes);
+      const converted = convertResponsesCompactRequest(body, {
+        defaultEffort: config.defaultEffort,
+        ...(config.modelOverride ? { modelOverride: config.modelOverride } : {})
+      });
+      if (!codexClient.compactResponse) {
+        throw new BridgeError(
+          "CODEX_COMPACTION_UNAVAILABLE",
+          "The configured Codex client does not support Responses compaction.",
+          { statusCode: 501 }
+        );
+      }
+      const upstream = await codexClient.compactResponse(converted.compact, controller.signal);
+      if (!upstream.body) {
+        throw new BridgeError(
+          "PROTOCOL_RESPONSE_INVALID",
+          "Codex compact response did not contain a JSON body.",
+          { statusCode: 502 }
+        );
+      }
+      response.writeHead(upstream.status, {
+        "content-type": upstream.headers.get("content-type") ?? "application/json; charset=utf-8",
+        "cache-control": "no-store"
+      });
+      await pipeOpaqueCompactResponse(
+        upstream.body,
+        (chunk) => response.write(chunk),
+        () => waitForDrain(response, controller.signal),
+        controller.signal
+      );
+      if (responseWritable(response, controller.signal)) {
+        response.end();
+      }
+      return;
+    }
 
-    if (["/auth/status", "/v1/models", "/v1/messages", "/v1/messages/count_tokens", "/v1/responses"].includes(url.pathname)) {
+    if ([
+      "/auth/status",
+      "/v1/models",
+      "/v1/messages",
+      "/v1/messages/count_tokens",
+      "/v1/responses",
+      "/v1/responses/compact"
+    ].includes(url.pathname)) {
       throw new BridgeError("BRIDGE_METHOD_NOT_ALLOWED", `Method ${request.method ?? "unknown"} is not allowed for ${url.pathname}.`, {
         statusCode: 405
       });
@@ -217,34 +280,11 @@ async function pipeResponsesStream(
   response: ServerResponse,
   signal: AbortSignal
 ): Promise<void> {
-  const reader = body.getReader();
-  let cancellation: Promise<void> | undefined;
-  const cancel = () => {
-    cancellation ??= reader.cancel(signal.reason).catch(() => undefined);
-  };
-  if (signal.aborted) {
-    cancel();
-  } else {
-    signal.addEventListener("abort", cancel, { once: true });
-  }
-  try {
-    while (responseWritable(response, signal)) {
-      const { done, value } = await reader.read();
-      if (done) {
-        return;
-      }
-      if (!response.write(value) && !(await waitForDrain(response, signal))) {
-        cancel();
-        return;
-      }
+  for await (const event of normalizeCodexResponsesStream(body, signal)) {
+    if (!responseWritable(response, signal)) return;
+    if (!response.write(event) && !(await waitForDrain(response, signal))) {
+      return;
     }
-    cancel();
-  } finally {
-    signal.removeEventListener("abort", cancel);
-    if (cancellation) {
-      await cancellation;
-    }
-    reader.releaseLock();
   }
 }
 

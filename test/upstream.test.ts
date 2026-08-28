@@ -6,7 +6,7 @@ import test from "node:test";
 import { CodexCredentialReader } from "../src/auth/credential-reader.js";
 import { BridgeError } from "../src/errors.js";
 import { CodexClient } from "../src/upstream/codex-client.js";
-import type { CodexResponsesRequest } from "../src/protocol/types.js";
+import type { CodexCompactRequest, CodexResponsesRequest } from "../src/protocol/types.js";
 import { jwt, writeCodexAuth } from "./helpers.js";
 
 const request: CodexResponsesRequest = {
@@ -20,6 +20,12 @@ const request: CodexResponsesRequest = {
   stream: true,
   include: ["reasoning.encrypted_content"],
   prompt_cache_key: "key"
+};
+
+const compactRequest: CodexCompactRequest = {
+  model: "gpt-5.6-sol",
+  input: [{ role: "user", content: "compact me" }],
+  parallel_tool_calls: false
 };
 
 test("reloads credentials after 401 and retries only when the token changed", async () => {
@@ -88,4 +94,101 @@ test("sends responses using first-party Codex headers", async () => {
   assert.equal(observed.get("authorization"), `Bearer ${token}`);
   assert.equal(observed.get("chatgpt-account-id"), "account-model");
   assert.equal(observed.get("originator"), "codex_cli_rs");
+});
+
+test("sends compact requests to the JSON endpoint with first-party authentication", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-compact-upstream-"));
+  await writeCodexAuth(home, { accountId: "account-compact" });
+  let observedUrl = "";
+  let observedBody = "";
+  let observed = new Headers();
+  const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+    observedUrl = String(url);
+    observedBody = String(init?.body ?? "");
+    observed = new Headers(init?.headers);
+    return new Response(JSON.stringify({
+      id: "resp_compact",
+      object: "response.compaction",
+      output: [{ type: "compaction", encrypted_content: "opaque" }]
+    }), { headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  const client = new CodexClient({
+    credentialReader: new CodexCredentialReader({ codexHome: home }),
+    baseUrl: "https://example.invalid/backend-api/codex",
+    fetchImpl
+  });
+
+  const response = await client.compactResponse(compactRequest);
+  assert.equal(response.status, 200);
+  assert.equal(observedUrl, "https://example.invalid/backend-api/codex/responses/compact");
+  assert.equal(observed.get("accept"), "application/json");
+  assert.equal(observed.get("content-type"), "application/json");
+  assert.deepEqual(JSON.parse(observedBody), compactRequest);
+});
+
+test("reloads changed credentials after a compact request receives 401", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-compact-reload-"));
+  const token1 = await writeCodexAuth(home, { accountId: "account-compact" });
+  const token2 = jwt({
+    exp: Math.floor(Date.now() / 1000) + 7200,
+    "https://api.openai.com/auth": { chatgpt_account_id: "account-compact" },
+    generation: 2
+  });
+  const authorizations: string[] = [];
+  const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+    authorizations.push(new Headers(init?.headers).get("authorization") ?? "");
+    if (authorizations.length === 1) {
+      await writeCodexAuth(home, { accessToken: token2 });
+      return new Response("unauthorized", { status: 401 });
+    }
+    return new Response(JSON.stringify({ object: "response.compaction", output: [] }));
+  }) as typeof fetch;
+  const client = new CodexClient({
+    credentialReader: new CodexCredentialReader({ codexHome: home }),
+    fetchImpl
+  });
+
+  assert.equal((await client.compactResponse(compactRequest)).status, 200);
+  assert.deepEqual(authorizations, [`Bearer ${token1}`, `Bearer ${token2}`]);
+});
+
+test("classifies compact endpoint, model, and context limit failures", async (context) => {
+  const cases = [
+    {
+      name: "endpoint unavailable",
+      status: 404,
+      body: { error: { message: "No route" } },
+      code: "CODEX_COMPACTION_UNAVAILABLE"
+    },
+    {
+      name: "model unsupported",
+      status: 400,
+      body: { error: { code: "model_not_supported", message: "Model does not support compaction" } },
+      code: "CODEX_MODEL_COMPACTION_UNAVAILABLE"
+    },
+    {
+      name: "context too large",
+      status: 400,
+      body: { error: { code: "context_length_exceeded", message: "Input exceeds the compact limit" } },
+      code: "CODEX_COMPACTION_INPUT_TOO_LARGE"
+    }
+  ] as const;
+
+  for (const item of cases) {
+    await context.test(item.name, async () => {
+      const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-compact-error-"));
+      await writeCodexAuth(home);
+      const client = new CodexClient({
+        credentialReader: new CodexCredentialReader({ codexHome: home }),
+        fetchImpl: (async () => new Response(JSON.stringify(item.body), {
+          status: item.status,
+          headers: { "content-type": "application/json" }
+        })) as typeof fetch
+      });
+      await assert.rejects(
+        () => client.compactResponse(compactRequest),
+        (error: unknown) => error instanceof BridgeError && error.code === item.code
+      );
+    });
+  }
 });

@@ -30,6 +30,21 @@ export interface CodexResponsesRequest {
   text?: Record<string, unknown>;
 }
 
+export interface CodexCompactRequest {
+  model: string;
+  input: Array<Record<string, unknown>>;
+  instructions?: string;
+  tools?: Array<Record<string, unknown>>;
+  parallel_tool_calls: boolean;
+  reasoning?: {
+    effort: string;
+    summary: "auto";
+  };
+  service_tier?: string;
+  prompt_cache_key?: string;
+  text?: Record<string, unknown>;
+}
+
 export interface RequestConversionOptions {
   defaultEffort?: string;
   modelOverride?: string;

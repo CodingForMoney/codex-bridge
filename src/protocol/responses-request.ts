@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { BridgeError } from "../errors.js";
 import { resolveSupportedModel } from "../models.js";
-import type { CodexResponsesRequest, RequestConversionOptions } from "./types.js";
+import type { CodexCompactRequest, CodexResponsesRequest, RequestConversionOptions } from "./types.js";
 
 const SUPPORTED_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
 const REQUIRED_INCLUDE = "reasoning.encrypted_content";
@@ -9,6 +9,11 @@ const REQUIRED_INCLUDE = "reasoning.encrypted_content";
 export interface ConvertedResponsesRequest {
   clientStream: boolean;
   responses: CodexResponsesRequest;
+  requestedModel: string;
+}
+
+export interface ConvertedResponsesCompactRequest {
+  compact: CodexCompactRequest;
   requestedModel: string;
 }
 
@@ -52,6 +57,46 @@ export function convertResponsesRequest(
   };
 }
 
+export function convertResponsesCompactRequest(
+  value: unknown,
+  options: RequestConversionOptions = {}
+): ConvertedResponsesCompactRequest {
+  if (!isRecord(value)) {
+    throw invalidRequest("Responses compact request must be a JSON object.");
+  }
+
+  validateCompactRequest(value);
+  const requestedModel = resolveSupportedModel(value, options.modelOverride);
+  const normalizedInput = normalizeInput(value.input);
+  const input = typeof normalizedInput === "string"
+    ? [{ role: "user", content: [{ type: "input_text", text: normalizedInput }] }]
+    : normalizedInput;
+  const instructions = optionalString(value.instructions, "instructions");
+  const tools = normalizeTools(value.tools);
+  const reasoning = value.reasoning === undefined
+    ? undefined
+    : normalizeReasoning(value.reasoning, options.defaultEffort);
+  const text = normalizeText(value.text);
+  const promptCacheKey = optionalString(value.prompt_cache_key, "prompt_cache_key");
+  const serviceTier = optionalString(value.service_tier, "service_tier");
+
+  return {
+    requestedModel,
+    compact: {
+      model: requestedModel,
+      input,
+      ...(instructions !== undefined ? { instructions } : {}),
+      ...(tools ? { tools } : {}),
+      parallel_tool_calls:
+        optionalBoolean(value.parallel_tool_calls, "parallel_tool_calls") ?? Boolean(tools?.length),
+      ...(reasoning ? { reasoning } : {}),
+      ...(serviceTier !== undefined ? { service_tier: serviceTier } : {}),
+      ...(promptCacheKey !== undefined ? { prompt_cache_key: promptCacheKey } : {}),
+      ...(text ? { text } : {})
+    }
+  };
+}
+
 export function normalizeReasoningEffort(value: string): string {
   const normalized = value.trim().toLowerCase() === "ultracode" ? "xhigh" : value.trim().toLowerCase();
   if (!SUPPORTED_EFFORTS.has(normalized)) {
@@ -70,6 +115,19 @@ function validateStatelessRequest(value: Record<string, unknown>): void {
   for (const field of ["previous_response_id", "conversation"] as const) {
     if (value[field] !== undefined && value[field] !== null) {
       throw unsupportedRequest(`Responses ${field} is not supported; send complete input history instead.`);
+    }
+  }
+}
+
+function validateCompactRequest(value: Record<string, unknown>): void {
+  for (const field of ["previous_response_id", "conversation"] as const) {
+    if (value[field] !== undefined && value[field] !== null) {
+      throw unsupportedRequest(`Responses compact ${field} is not supported; send complete input history instead.`);
+    }
+  }
+  for (const field of ["stream", "store", "background", "include"] as const) {
+    if (value[field] !== undefined) {
+      throw unsupportedRequest(`Responses compact ${field} is not supported.`);
     }
   }
 }
@@ -109,6 +167,15 @@ function validateInputItem(item: Record<string, unknown>): void {
   if (type === "reasoning") {
     if (!readString(item.id) || !readString(item.encrypted_content)) {
       throw invalidRequest("Responses reasoning input items require id and encrypted_content.");
+    }
+    return;
+  }
+  if (type === "compaction") {
+    if (!readString(item.encrypted_content)) {
+      throw invalidRequest("Responses compaction input items require encrypted_content.");
+    }
+    if (item.id !== undefined && !readString(item.id)) {
+      throw invalidRequest("Responses compaction input item id must be a non-empty string when supplied.");
     }
     return;
   }
@@ -301,6 +368,17 @@ function optionalBoolean(value: unknown, field: string): boolean | undefined {
     throw invalidRequest(`Responses ${field} must be a boolean.`);
   }
   return value;
+}
+
+function optionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = readString(value);
+  if (!normalized) {
+    throw invalidRequest(`Responses compact ${field} must be a non-empty string.`);
+  }
+  return normalized;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

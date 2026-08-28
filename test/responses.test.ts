@@ -114,6 +114,33 @@ test("collects a terminal Codex stream into a native Responses object", async ()
   assert.deepEqual(await collectCodexResponsesResponse(response.body), completed);
 });
 
+test("restores terminal output from output item events when Codex omits response.output", async () => {
+  const message = {
+    type: "message",
+    id: "msg_reconstructed",
+    role: "assistant",
+    content: [{ type: "output_text", text: '{"status":"ok"}' }]
+  };
+  const response = codexSse([
+    { type: "response.created", response: { id: "resp_reconstructed", status: "in_progress" } },
+    { type: "response.output_item.added", output_index: 0, item: { ...message, content: [] } },
+    { type: "response.output_item.done", output_index: 0, item: message },
+    {
+      type: "response.completed",
+      response: {
+        id: "resp_reconstructed",
+        object: "response",
+        status: "completed",
+        output: [],
+        usage: { input_tokens: 4, output_tokens: 5, total_tokens: 9 }
+      }
+    }
+  ]);
+
+  const completed = await collectCodexResponsesResponse(response.body);
+  assert.deepEqual(completed.output, [message]);
+});
+
 test("serves non-streaming and streaming Responses alongside Anthropic Messages", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-responses-"));
   await writeCodexAuth(home);
@@ -124,9 +151,11 @@ test("serves non-streaming and streaming Responses alongside Anthropic Messages"
       requests.push(request);
       sequence += 1;
       const completed = nativeCompletedResponse(`resp_${sequence}`, request.model);
+      const output = completed.output as Array<Record<string, unknown>>;
       return codexSse([
         { type: "response.created", response: { id: completed.id, status: "in_progress" } },
-        { type: "response.completed", response: completed }
+        { type: "response.output_item.done", output_index: 0, item: output[0] },
+        { type: "response.completed", response: { ...completed, output: [] } }
       ]);
     }
   };
@@ -168,6 +197,7 @@ test("serves non-streaming and streaming Responses alongside Anthropic Messages"
     assert.match(streamedText, /event: response\.created/);
     assert.match(streamedText, /event: response\.completed/);
     assert.match(streamedText, /"id":"resp_2"/);
+    assert.match(streamedText, /"output":\[\{"type":"message"/);
 
     const messages = await fetch(`${running.url}/v1/messages`, {
       method: "POST",

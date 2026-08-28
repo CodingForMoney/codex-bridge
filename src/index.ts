@@ -9,10 +9,17 @@ export { resolveSupportedModel, SUPPORTED_MODELS } from "./models.js";
 export { convertAnthropicRequest } from "./protocol/anthropic-request.js";
 export { collectCodexResponse } from "./protocol/anthropic-response.js";
 export { streamCodexAsAnthropic } from "./protocol/anthropic-stream.js";
-export { convertResponsesRequest, normalizeReasoningEffort } from "./protocol/responses-request.js";
-export type { ConvertedResponsesRequest } from "./protocol/responses-request.js";
+export {
+  convertResponsesCompactRequest,
+  convertResponsesRequest,
+  normalizeReasoningEffort
+} from "./protocol/responses-request.js";
+export type {
+  ConvertedResponsesCompactRequest,
+  ConvertedResponsesRequest
+} from "./protocol/responses-request.js";
 export { collectCodexResponsesResponse } from "./protocol/responses-response.js";
-export type { CodexResponsesRequest } from "./protocol/types.js";
+export type { CodexCompactRequest, CodexResponsesRequest } from "./protocol/types.js";
 export { startBridgeServer } from "./server/app.js";
 export type { BridgeApiKeyProvider, BridgeServerOptions, RunningBridgeServer } from "./server/app.js";
 export { CodexClient } from "./upstream/codex-client.js";

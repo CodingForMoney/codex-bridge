@@ -5,6 +5,9 @@ export type BridgeErrorCode =
   | "CODEX_AUTH_UNAUTHORIZED"
   | "CODEX_AUTH_STORAGE_UNSUPPORTED"
   | "CODEX_MODEL_UNAVAILABLE"
+  | "CODEX_COMPACTION_UNAVAILABLE"
+  | "CODEX_MODEL_COMPACTION_UNAVAILABLE"
+  | "CODEX_COMPACTION_INPUT_TOO_LARGE"
   | "CODEX_UPSTREAM_UNREACHABLE"
   | "CODEX_UPSTREAM_RATE_LIMITED"
   | "CODEX_UPSTREAM_ERROR"
@@ -69,11 +72,16 @@ export function anthropicErrorType(error: BridgeError): string {
   if (
     error.code.startsWith("PROTOCOL_REQUEST_") ||
     error.code === "CODEX_MODEL_UNAVAILABLE" ||
+    error.code === "CODEX_MODEL_COMPACTION_UNAVAILABLE" ||
+    error.code === "CODEX_COMPACTION_INPUT_TOO_LARGE" ||
     error.code === "BRIDGE_BODY_TOO_LARGE"
   ) {
     return "invalid_request_error";
   }
   if (error.code === "BRIDGE_NOT_FOUND") {
+    return "not_found_error";
+  }
+  if (error.code === "CODEX_COMPACTION_UNAVAILABLE") {
     return "not_found_error";
   }
   return "api_error";

@@ -108,6 +108,7 @@ The bridge exposes:
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
 - `POST /v1/responses`
+- `POST /v1/responses/compact`
 - `GET /v1/models`
 - `GET /auth/status`
 - `GET /health`
@@ -134,11 +135,37 @@ configuration, and streaming or non-streaming output. The upstream request is
 always stateless and streamed internally; non-streaming client requests are
 assembled from the terminal Responses event.
 
+Responses compaction forwards a complete input history to the Codex native
+`responses/compact` endpoint. The successful JSON response is passed through
+without parsing or reconstructing its output, so compaction items, encrypted
+content, IDs, ordering, usage, and unknown future fields remain opaque. Pass the
+returned `output` items plus the next user message to `POST /v1/responses`:
+
+```javascript
+const compacted = await client.responses.compact({
+  model: "gpt-5.6-sol",
+  input: completeHistory
+});
+
+const next = await client.responses.create({
+  model: "gpt-5.6-sol",
+  input: [...compacted.output, { role: "user", content: "Continue." }]
+});
+```
+
+Compaction remains stateless: the caller owns the history and decides when to
+compact or fall back. Treat returned compaction items as opaque and continue
+with the same upstream model because their encrypted content is model- and
+provider-specific. See the [OpenAI Responses Compaction API](https://developers.openai.com/api/reference/resources/responses/methods/compact).
+
 The Responses endpoint implements the supported Codex subset rather than the
 entire OpenAI platform API. It requires `store: false` when `store` is supplied
 and rejects background mode, server-side conversation continuation, hosted
 tools, file inputs, and unsupported include or reasoning options. Send complete
 input history, including encrypted reasoning items, for stateless continuation.
+
+`GET /health` includes `capabilities.responses_compact: true` so clients can
+discover native compaction support without sending a probe request.
 
 `/v1/messages/count_tokens` is a conservative compatibility estimate. The
 private Codex backend exposes no tokenizer endpoint, so it must not be used for

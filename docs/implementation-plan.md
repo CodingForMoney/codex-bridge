@@ -69,12 +69,15 @@ Initial endpoints:
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
 - `POST /v1/responses`
+- `POST /v1/responses/compact`
 - `GET /v1/models`
 - `GET /health`
 - `GET /auth/status`
 
 The health and authentication endpoints expose state and safe metadata only.
 They never expose OAuth tokens or raw credential contents.
+The health response declares support for Anthropic Messages, OpenAI Responses,
+and native Responses compaction.
 
 `GET /v1/models` returns the fixed supported-model allowlist. Message and token
 count requests reject every model outside that allowlist before contacting the
@@ -105,6 +108,13 @@ non-streaming clients. It forces stateless upstream operation with `store:
 false` and upstream streaming. Stateful response storage, background mode,
 server-side conversation continuation, hosted tools, and file inputs fail with
 an explicit compatibility error.
+
+Native Responses compaction forwards complete stateless history to the Codex
+`responses/compact` adapter. Successful compact responses are byte-for-byte
+opaque to the protocol layer: the bridge does not parse, summarize, reorder, or
+reconstruct output items. Responses input validation accepts returned
+`compaction` items and preserves their unknown fields so callers can continue
+the conversation using the canonical compacted output.
 
 The Codex backend used by ChatGPT-authenticated Codex clients is not documented
 as a stable public third-party API. Upstream request headers, models, event
@@ -251,6 +261,8 @@ outside the initial scope.
 - request and response block conversion
 - native Responses request validation and normalization
 - native Responses non-streaming terminal response collection
+- compact request validation and opaque compact response passthrough
+- compact output accepted as subsequent native Responses input
 - tool-call and tool-result conversion
 - streaming event ordering and termination
 - stable error mapping
@@ -263,6 +275,8 @@ outside the initial scope.
 - local HTTP endpoints and client authentication
 - Anthropic Messages and OpenAI Responses coexistence on one server
 - native Responses streaming passthrough and non-streaming collection
+- native Responses compaction followed by stateless continuation and tool use
+- compact response field preservation, cancellation, and upstream error mapping
 - OpenAI-compatible error envelopes on Responses routes
 - streaming cancellation and client disconnects
 - fixed model-list response and model rejection before upstream dispatch
@@ -275,6 +289,7 @@ outside the initial scope.
 - Claude Code tool use
 - long streaming response
 - native OpenAI Responses streaming and non-streaming requests
+- native OpenAI Responses compaction and continuation
 - Codex credential expiration followed by a user-driven Codex refresh
 - VibeCodingMaster session using a bridge model
 - normal Claude Code model startup after bridge use
@@ -297,6 +312,7 @@ Real Codex credentials must never be used in automated CI.
 - streaming conversion
 - tool-use conversion
 - native Responses request validation and response handling
+- native Responses compaction and opaque continuation items
 - error and cancellation behavior
 
 ### Stage 3: Client Validation

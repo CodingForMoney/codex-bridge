@@ -1,7 +1,7 @@
 import { BridgeError, redactSecrets } from "../errors.js";
 import type { CodexCredential } from "../auth/credential-status.js";
 import { CodexCredentialReader } from "../auth/credential-reader.js";
-import type { CodexResponsesRequest } from "../protocol/types.js";
+import type { CodexCompactRequest, CodexResponsesRequest } from "../protocol/types.js";
 
 export interface CodexClientOptions {
   credentialReader: CodexCredentialReader;
@@ -22,9 +22,21 @@ export class CodexClient {
   }
 
   async createResponse(request: CodexResponsesRequest, signal?: AbortSignal): Promise<Response> {
-    return this.withCredentialReload((credential) =>
+    return this.withCredentialReload("responses", (credential) =>
       this.request("responses", credential, {
         method: "POST",
+        accept: "text/event-stream",
+        body: JSON.stringify(request),
+        ...(signal ? { signal } : {})
+      })
+    );
+  }
+
+  async compactResponse(request: CodexCompactRequest, signal?: AbortSignal): Promise<Response> {
+    return this.withCredentialReload("compaction", (credential) =>
+      this.request("responses/compact", credential, {
+        method: "POST",
+        accept: "application/json",
         body: JSON.stringify(request),
         ...(signal ? { signal } : {})
       })
@@ -32,6 +44,7 @@ export class CodexClient {
   }
 
   private async withCredentialReload(
+    operation: "responses" | "compaction",
     perform: (credential: CodexCredential) => Promise<Response>
   ): Promise<Response> {
     const first = await this.options.credentialReader.read();
@@ -44,7 +57,7 @@ export class CodexClient {
       }
     }
     if (!response.ok) {
-      throw await responseError(response);
+      throw await responseError(response, operation);
     }
     return response;
   }
@@ -52,14 +65,14 @@ export class CodexClient {
   private async request(
     path: string,
     credential: CodexCredential,
-    init: { method: "GET" | "POST"; body?: string; signal?: AbortSignal }
+    init: { method: "GET" | "POST"; accept: string; body?: string; signal?: AbortSignal }
   ): Promise<Response> {
     const headers = new Headers({
       authorization: `Bearer ${credential.accessToken}`,
       "chatgpt-account-id": credential.accountId,
       originator: "codex_cli_rs",
       "user-agent": `codex_cli_rs/${this.clientVersion} (codex-bridge)`,
-      accept: init.method === "POST" ? "text/event-stream" : "application/json"
+      accept: init.accept
     });
     if (init.body !== undefined) {
       headers.set("content-type", "application/json");
@@ -87,9 +100,13 @@ export class CodexClient {
   }
 }
 
-async function responseError(response: Response): Promise<BridgeError> {
+async function responseError(
+  response: Response,
+  operation: "responses" | "compaction"
+): Promise<BridgeError> {
   const raw = await response.text().catch(() => "");
-  const message = safeUpstreamMessage(raw) ?? `Codex backend returned HTTP ${response.status}.`;
+  const upstream = safeUpstreamError(raw);
+  const message = upstream.message ?? `Codex backend returned HTTP ${response.status}.`;
   if (response.status === 401) {
     return new BridgeError(
       "CODEX_AUTH_UNAUTHORIZED",
@@ -103,24 +120,58 @@ async function responseError(response: Response): Promise<BridgeError> {
       statusCode: 429
     });
   }
+  if (operation === "compaction") {
+    if (isCompactionInputTooLarge(response.status, upstream.code)) {
+      return new BridgeError("CODEX_COMPACTION_INPUT_TOO_LARGE", message, {
+        statusCode: response.status
+      });
+    }
+    if (isModelCompactionUnavailable(upstream.code, message)) {
+      return new BridgeError("CODEX_MODEL_COMPACTION_UNAVAILABLE", message, {
+        statusCode: response.status
+      });
+    }
+    if (response.status === 404 || response.status === 405) {
+      return new BridgeError(
+        "CODEX_COMPACTION_UNAVAILABLE",
+        upstream.message ?? "The Codex backend does not expose Responses compaction.",
+        { statusCode: response.status }
+      );
+    }
+  }
   return new BridgeError("CODEX_UPSTREAM_ERROR", message, {
     retryable: response.status >= 500,
     statusCode: response.status >= 400 && response.status < 600 ? response.status : 502
   });
 }
 
-function safeUpstreamMessage(raw: string): string | undefined {
+function safeUpstreamError(raw: string): { message?: string; code?: string } {
   if (!raw.trim()) {
-    return undefined;
+    return {};
   }
   try {
     const root = record(JSON.parse(raw));
     const error = record(root?.error);
     const message = readString(error?.message) ?? readString(root?.detail) ?? readString(root?.message);
-    return message ? redactSecrets(message) : undefined;
+    const code = readString(error?.code) ?? readString(root?.code);
+    return {
+      ...(message ? { message: redactSecrets(message) } : {}),
+      ...(code ? { code } : {})
+    };
   } catch {
-    return raw.length <= 500 ? redactSecrets(raw) : undefined;
+    return raw.length <= 500 ? { message: redactSecrets(raw) } : {};
   }
+}
+
+function isCompactionInputTooLarge(status: number, code: string | undefined): boolean {
+  return status === 413 || code === "context_length_exceeded" || code === "input_too_large";
+}
+
+function isModelCompactionUnavailable(code: string | undefined, message: string): boolean {
+  if (code === "model_not_supported" || code === "unsupported_model") {
+    return true;
+  }
+  return /model/i.test(message) && /(not supported|unsupported|unavailable)/i.test(message);
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
