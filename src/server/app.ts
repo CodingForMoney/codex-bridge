@@ -6,7 +6,7 @@ import type { BridgeConfig } from "../config/config.js";
 import { convertAnthropicRequest } from "../protocol/anthropic-request.js";
 import { collectCodexResponse } from "../protocol/anthropic-response.js";
 import { streamCodexAsAnthropic } from "../protocol/anthropic-stream.js";
-import { pipeOpaqueCompactResponse } from "../protocol/responses-compact.js";
+import { collectCodexCompactResponse } from "../protocol/responses-compact.js";
 import {
   convertResponsesCompactRequest,
   convertResponsesRequest
@@ -216,23 +216,16 @@ async function handleRequest(
       if (!upstream.body) {
         throw new BridgeError(
           "PROTOCOL_RESPONSE_INVALID",
-          "Codex compact response did not contain a JSON body.",
+          "Codex compact response did not contain an event stream.",
           { statusCode: 502 }
         );
       }
-      response.writeHead(upstream.status, {
-        "content-type": upstream.headers.get("content-type") ?? "application/json; charset=utf-8",
-        "cache-control": "no-store"
-      });
-      await pipeOpaqueCompactResponse(
+      const compacted = await collectCodexCompactResponse(
         upstream.body,
-        (chunk) => response.write(chunk),
-        () => waitForDrain(response, controller.signal),
+        converted.compact.input,
         controller.signal
       );
-      if (responseWritable(response, controller.signal)) {
-        response.end();
-      }
+      json(response, 200, compacted);
       return;
     }
 

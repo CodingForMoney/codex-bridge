@@ -96,7 +96,7 @@ test("sends responses using first-party Codex headers", async () => {
   assert.equal(observed.get("originator"), "codex_cli_rs");
 });
 
-test("sends compact requests to the JSON endpoint with first-party authentication", async () => {
+test("sends compact requests through the Codex Responses compaction trigger", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-compact-upstream-"));
   await writeCodexAuth(home, { accountId: "account-compact" });
   let observedUrl = "";
@@ -106,11 +106,7 @@ test("sends compact requests to the JSON endpoint with first-party authenticatio
     observedUrl = String(url);
     observedBody = String(init?.body ?? "");
     observed = new Headers(init?.headers);
-    return new Response(JSON.stringify({
-      id: "resp_compact",
-      object: "response.compaction",
-      output: [{ type: "compaction", encrypted_content: "opaque" }]
-    }), { headers: { "content-type": "application/json" } });
+    return new Response("event stream", { headers: { "content-type": "text/event-stream" } });
   }) as typeof fetch;
   const client = new CodexClient({
     credentialReader: new CodexCredentialReader({ codexHome: home }),
@@ -120,10 +116,24 @@ test("sends compact requests to the JSON endpoint with first-party authenticatio
 
   const response = await client.compactResponse(compactRequest);
   assert.equal(response.status, 200);
-  assert.equal(observedUrl, "https://example.invalid/backend-api/codex/responses/compact");
-  assert.equal(observed.get("accept"), "application/json");
+  assert.equal(observedUrl, "https://example.invalid/backend-api/codex/responses");
+  assert.equal(observed.get("accept"), "text/event-stream");
   assert.equal(observed.get("content-type"), "application/json");
-  assert.deepEqual(JSON.parse(observedBody), compactRequest);
+  assert.deepEqual(JSON.parse(observedBody), {
+    model: "gpt-5.6-sol",
+    instructions: "",
+    input: [
+      { role: "user", content: "compact me" },
+      { type: "compaction_trigger" }
+    ],
+    tool_choice: "auto",
+    parallel_tool_calls: false,
+    reasoning: { effort: "medium", summary: "auto" },
+    store: false,
+    stream: true,
+    include: ["reasoning.encrypted_content"],
+    prompt_cache_key: "codex-bridge-compaction"
+  });
 });
 
 test("reloads changed credentials after a compact request receives 401", async () => {

@@ -27,6 +27,7 @@ export interface CodexResponsesRequest {
   stream: true;
   include: string[];
   prompt_cache_key: string;
+  service_tier?: string;
   text?: Record<string, unknown>;
 }
 

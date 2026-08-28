@@ -109,12 +109,14 @@ false` and upstream streaming. Stateful response storage, background mode,
 server-side conversation continuation, hosted tools, and file inputs fail with
 an explicit compatibility error.
 
-Native Responses compaction forwards complete stateless history to the Codex
-`responses/compact` adapter. Successful compact responses are byte-for-byte
-opaque to the protocol layer: the bridge does not parse, summarize, reorder, or
-reconstruct output items. Responses input validation accepts returned
-`compaction` items and preserves their unknown fields so callers can continue
-the conversation using the canonical compacted output.
+Native Responses compaction exposes the OpenAI-compatible
+`/v1/responses/compact` route while adapting to the ChatGPT Codex subscription
+backend's current protocol. The bridge sends complete stateless history plus a
+`compaction_trigger` through `/responses`, collects the single upstream
+compaction item, and returns it with the retained user messages as a
+`response.compaction` object. The bridge does not inspect or rewrite the opaque
+compaction item. Responses input validation accepts that item and preserves its
+unknown fields so callers can continue with the canonical compacted output.
 
 The Codex backend used by ChatGPT-authenticated Codex clients is not documented
 as a stable public third-party API. Upstream request headers, models, event
@@ -261,7 +263,7 @@ outside the initial scope.
 - request and response block conversion
 - native Responses request validation and normalization
 - native Responses non-streaming terminal response collection
-- compact request validation and opaque compact response passthrough
+- compact request validation and opaque compaction-item preservation
 - compact output accepted as subsequent native Responses input
 - tool-call and tool-result conversion
 - streaming event ordering and termination

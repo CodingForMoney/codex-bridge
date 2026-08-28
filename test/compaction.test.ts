@@ -81,20 +81,13 @@ test("compacts a complete history and continues through Responses without rewrit
     encrypted_content: "encrypted-state-must-not-change",
     future_field: { version: 2 }
   };
-  const compacted = {
+  const compactedTerminal = {
     id: "resp_compacted",
-    object: "response.compaction",
+    object: "response",
+    status: "completed",
+    model: "gpt-5.6-sol",
     created_at: 1_765_000_000,
-    output: [
-      {
-        id: "msg_retained",
-        type: "message",
-        status: "completed",
-        role: "user",
-        content: [{ type: "input_text", text: "Build the feature." }]
-      },
-      opaqueCompaction
-    ],
+    output: [opaqueCompaction],
     usage: {
       input_tokens: 120,
       input_tokens_details: { cached_tokens: 40, future_counter: 7 },
@@ -103,7 +96,6 @@ test("compacts a complete history and continues through Responses without rewrit
     },
     future_top_level: "preserved"
   };
-  const compactedJson = JSON.stringify(compacted);
   const client: CodexClientLike = {
     async createResponse(request) {
       responseRequests.push(request);
@@ -132,9 +124,10 @@ test("compacts a complete history and continues through Responses without rewrit
     },
     async compactResponse(request) {
       compactRequests.push(request);
-      return new Response(compactedJson, {
-        headers: { "content-type": "application/json; charset=utf-8" }
-      });
+      return codexSse([{
+        type: "response.completed",
+        response: compactedTerminal
+      }]);
     }
   };
   const running = await startBridgeServer({
@@ -181,7 +174,21 @@ test("compacts a complete history and continues through Responses without rewrit
       body: JSON.stringify({ model: "gpt-5.6-sol", input: history })
     });
     assert.equal(compact.status, 200);
-    assert.equal(await compact.text(), compactedJson);
+    const compacted = await compact.json() as {
+      object: string;
+      status: string;
+      output: Array<Record<string, unknown>>;
+      future_top_level: string;
+    };
+    assert.equal(compacted.object, "response.compaction");
+    assert.equal(compacted.status, "completed");
+    assert.equal(compacted.future_top_level, "preserved");
+    assert.deepEqual(compacted.output[0], {
+      type: "message",
+      role: "user",
+      content: "Build the feature."
+    });
+    assert.deepEqual(compacted.output[1], opaqueCompaction);
     assert.deepEqual(compactRequests[0]?.input, history);
 
     const continued = await fetch(`${running.url}/v1/responses`, {
@@ -230,11 +237,15 @@ test("compacts a complete history and continues through Responses without rewrit
   }
 });
 
-test("cancels the compact upstream body when the client disconnects", async () => {
+test("cancels the compact upstream stream when the client disconnects", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-compact-cancel-"));
   await writeCodexAuth(home);
   let upstreamAborted = false;
   let upstreamCancelled = false;
+  let markUpstreamStarted: (() => void) | undefined;
+  const upstreamStarted = new Promise<void>((resolve) => {
+    markUpstreamStarted = resolve;
+  });
   const encoder = new TextEncoder();
   const running = await startBridgeServer({
     config: testConfig(home),
@@ -244,12 +255,13 @@ test("cancels the compact upstream body when the client disconnects", async () =
         throw new Error("Unexpected Responses request.");
       },
       async compactResponse(_request, signal) {
+        markUpstreamStarted?.();
         signal?.addEventListener("abort", () => {
           upstreamAborted = true;
         }, { once: true });
         return new Response(new ReadableStream<Uint8Array>({
           start(controller) {
-            controller.enqueue(encoder.encode('{"id":"partial"'));
+            controller.enqueue(encoder.encode('event: response.output_item.added\ndata: {"type":"response.output_item.added"'));
           },
           cancel() {
             upstreamCancelled = true;
@@ -261,7 +273,7 @@ test("cancels the compact upstream body when the client disconnects", async () =
 
   try {
     const controller = new AbortController();
-    const response = await fetch(`${running.url}/v1/responses/compact`, {
+    const responsePromise = fetch(`${running.url}/v1/responses/compact`, {
       method: "POST",
       headers: { authorization: "Bearer local-secret", "content-type": "application/json" },
       body: JSON.stringify({
@@ -270,11 +282,9 @@ test("cancels the compact upstream body when the client disconnects", async () =
       }),
       signal: controller.signal
     });
-    const reader = response.body?.getReader();
-    assert.ok(reader);
-    assert.equal((await reader.read()).done, false);
-    await reader.cancel("test compact disconnect");
+    await upstreamStarted;
     controller.abort();
+    await assert.rejects(responsePromise, /abort/i);
 
     await waitFor(() => upstreamAborted && upstreamCancelled);
   } finally {

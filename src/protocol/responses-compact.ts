@@ -1,46 +1,42 @@
 import { BridgeError } from "../errors.js";
+import { collectCodexResponsesResponse } from "./responses-response.js";
 
-export async function pipeOpaqueCompactResponse(
+export async function collectCodexCompactResponse(
   body: ReadableStream<Uint8Array> | null,
-  write: (chunk: Uint8Array) => boolean,
-  waitForDrain: () => Promise<boolean>,
-  signal: AbortSignal
-): Promise<void> {
-  if (!body) {
+  input: Array<Record<string, unknown>>,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
+  const terminal = await collectCodexResponsesResponse(body, signal);
+  const upstreamOutput = Array.isArray(terminal.output) ? terminal.output : [];
+  const compactionItems = upstreamOutput.filter(
+    (item): item is Record<string, unknown> => isRecord(item) && item.type === "compaction"
+  );
+  if (compactionItems.length !== 1) {
     throw new BridgeError(
       "PROTOCOL_RESPONSE_INVALID",
-      "Codex compact response did not contain a JSON body.",
+      `Codex compaction returned ${compactionItems.length} compaction items; expected exactly one.`,
       { statusCode: 502 }
     );
   }
 
-  const reader = body.getReader();
-  let cancellation: Promise<void> | undefined;
-  const cancel = () => {
-    cancellation ??= reader.cancel(signal.reason).catch(() => undefined);
+  return {
+    ...terminal,
+    object: "response.compaction",
+    output: [
+      ...input.filter(isUserMessage).map(normalizeUserMessage),
+      compactionItems[0]
+    ]
   };
-  if (signal.aborted) {
-    cancel();
-  } else {
-    signal.addEventListener("abort", cancel, { once: true });
-  }
-  try {
-    while (!signal.aborted) {
-      const { done, value } = await reader.read();
-      if (done) {
-        return;
-      }
-      if (!write(value) && !(await waitForDrain())) {
-        cancel();
-        return;
-      }
-    }
-    cancel();
-  } finally {
-    signal.removeEventListener("abort", cancel);
-    if (cancellation) {
-      await cancellation;
-    }
-    reader.releaseLock();
-  }
+}
+
+function isUserMessage(item: Record<string, unknown>): boolean {
+  return (item.type === undefined || item.type === "message") && item.role === "user";
+}
+
+function normalizeUserMessage(item: Record<string, unknown>): Record<string, unknown> {
+  return item.type === undefined ? { type: "message", ...item } : item;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

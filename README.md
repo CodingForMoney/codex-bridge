@@ -135,11 +135,15 @@ configuration, and streaming or non-streaming output. The upstream request is
 always stateless and streamed internally; non-streaming client requests are
 assembled from the terminal Responses event.
 
-Responses compaction forwards a complete input history to the Codex native
-`responses/compact` endpoint. The successful JSON response is passed through
-without parsing or reconstructing its output, so compaction items, encrypted
-content, IDs, ordering, usage, and unknown future fields remain opaque. Pass the
-returned `output` items plus the next user message to `POST /v1/responses`:
+Responses compaction accepts the OpenAI-compatible `POST /v1/responses/compact`
+contract. The ChatGPT Codex subscription backend does
+not expose that route directly, so the bridge uses the current Codex protocol:
+it sends the complete history plus a `compaction_trigger` through
+`/responses`, then returns a `response.compaction` object containing the
+retained user messages and the upstream compaction item. The compaction item,
+its encrypted content, IDs, ordering, usage, and unknown fields remain opaque.
+Pass the returned `output` items plus the next user message to
+`POST /v1/responses`:
 
 ```javascript
 const compacted = await client.responses.compact({

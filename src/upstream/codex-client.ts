@@ -34,10 +34,24 @@ export class CodexClient {
 
   async compactResponse(request: CodexCompactRequest, signal?: AbortSignal): Promise<Response> {
     return this.withCredentialReload("compaction", (credential) =>
-      this.request("responses/compact", credential, {
+      this.request("responses", credential, {
         method: "POST",
-        accept: "application/json",
-        body: JSON.stringify(request),
+        accept: "text/event-stream",
+        body: JSON.stringify({
+          model: request.model,
+          instructions: request.instructions ?? "",
+          input: [...request.input, { type: "compaction_trigger" }],
+          ...(request.tools ? { tools: request.tools } : {}),
+          tool_choice: "auto",
+          parallel_tool_calls: request.parallel_tool_calls,
+          reasoning: request.reasoning ?? { effort: "medium", summary: "auto" },
+          store: false,
+          stream: true,
+          include: ["reasoning.encrypted_content"],
+          prompt_cache_key: request.prompt_cache_key ?? "codex-bridge-compaction",
+          ...(request.service_tier ? { service_tier: request.service_tier } : {}),
+          ...(request.text ? { text: request.text } : {})
+        } satisfies CodexResponsesRequest),
         ...(signal ? { signal } : {})
       })
     );
