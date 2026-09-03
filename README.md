@@ -227,5 +227,16 @@ npm run pack:check
 Automated tests use synthetic JWTs and mocked Codex responses. Real Codex
 credentials are never required by the test suite.
 
+To run the opt-in reasoning-summary conformance test against both supported
+Codex models, use an existing file-backed Codex login:
+
+```bash
+CODEX_BRIDGE_RUN_LIVE_TESTS=1 npm test
+```
+
+The live test sends real model requests and consumes subscription usage. It
+verifies public reasoning-summary events independently from reasoning-token
+accounting and never prints encrypted reasoning content or credentials.
+
 The original design and security decisions are recorded in
 [`docs/implementation-plan.md`](docs/implementation-plan.md).

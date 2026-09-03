@@ -67,10 +67,7 @@ export function convertResponsesCompactRequest(
 
   validateCompactRequest(value);
   const requestedModel = resolveSupportedModel(value, options.modelOverride);
-  const normalizedInput = normalizeInput(value.input);
-  const input = typeof normalizedInput === "string"
-    ? [{ role: "user", content: [{ type: "input_text", text: normalizedInput }] }]
-    : normalizedInput;
+  const input = normalizeInput(value.input);
   const instructions = optionalString(value.instructions, "instructions");
   const tools = normalizeTools(value.tools);
   const reasoning = value.reasoning === undefined
@@ -142,12 +139,16 @@ function normalizeInstructions(value: unknown): string {
   return value;
 }
 
-function normalizeInput(value: unknown): string | Array<Record<string, unknown>> {
+function normalizeInput(value: unknown): Array<Record<string, unknown>> {
   if (typeof value === "string") {
     if (!value.length) {
       throw invalidRequest("Responses input must not be empty.");
     }
-    return value;
+    return [{
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: value }]
+    }];
   }
   if (!Array.isArray(value) || value.length === 0 || !value.every(isRecord)) {
     throw invalidRequest("Responses input must be a non-empty string or array of input items.");

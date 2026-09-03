@@ -15,7 +15,7 @@ export interface AnthropicMessageRequest {
 export interface CodexResponsesRequest {
   model: string;
   instructions: string;
-  input: string | Array<Record<string, unknown>>;
+  input: Array<Record<string, unknown>>;
   tools?: Array<Record<string, unknown>>;
   tool_choice: string;
   parallel_tool_calls: boolean;

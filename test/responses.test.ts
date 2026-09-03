@@ -7,7 +7,10 @@ import { CodexCredentialReader } from "../src/auth/credential-reader.js";
 import type { BridgeConfig } from "../src/config/config.js";
 import { BridgeError } from "../src/errors.js";
 import { convertResponsesRequest } from "../src/protocol/responses-request.js";
-import { collectCodexResponsesResponse } from "../src/protocol/responses-response.js";
+import {
+  collectCodexResponsesResponse,
+  normalizeCodexResponsesStream
+} from "../src/protocol/responses-response.js";
 import type { CodexResponsesRequest } from "../src/protocol/types.js";
 import { startBridgeServer, type CodexClientLike } from "../src/server/app.js";
 import { codexSse, writeCodexAuth } from "./helpers.js";
@@ -43,6 +46,11 @@ test("normalizes the supported Responses request subset for the Codex backend", 
   assert.equal(converted.responses.tool_choice, "required");
   assert.equal(converted.responses.parallel_tool_calls, false);
   assert.equal("max_output_tokens" in converted.responses, false);
+  assert.deepEqual(converted.responses.input, [{
+    type: "message",
+    role: "user",
+    content: [{ type: "input_text", text: "hello" }]
+  }]);
 });
 
 test("rejects Responses features that require unsupported backend behavior", () => {
@@ -139,6 +147,139 @@ test("restores terminal output from output item events when Codex omits response
 
   const completed = await collectCodexResponsesResponse(response.body);
   assert.deepEqual(completed.output, [message]);
+});
+
+test("forwards public reasoning-summary events and retains the terminal summary", async () => {
+  const summaryDelta = {
+    type: "response.reasoning_summary_text.delta",
+    item_id: "reason_summary",
+    output_index: 0,
+    summary_index: 0,
+    sequence_number: 3,
+    delta: "Checked the public contract.",
+    obfuscation: "opaque-padding",
+    future_field: { preserved: true }
+  };
+  const reasoningItem = {
+    type: "reasoning",
+    id: "reason_summary",
+    content: [],
+    encrypted_content: "opaque-reasoning-state",
+    summary: [{ type: "summary_text", text: "Checked the public contract." }]
+  };
+  const events = [
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { ...reasoningItem, summary: [] }
+    },
+    {
+      type: "response.reasoning_summary_part.added",
+      item_id: "reason_summary",
+      output_index: 0,
+      summary_index: 0,
+      part: { type: "summary_text", text: "" }
+    },
+    summaryDelta,
+    {
+      type: "response.reasoning_summary_text.done",
+      item_id: "reason_summary",
+      output_index: 0,
+      summary_index: 0,
+      text: "Checked the public contract."
+    },
+    {
+      type: "response.reasoning_summary_part.done",
+      item_id: "reason_summary",
+      output_index: 0,
+      summary_index: 0,
+      part: { type: "summary_text", text: "Checked the public contract." }
+    },
+    { type: "response.output_item.done", output_index: 0, item: reasoningItem },
+    {
+      type: "response.completed",
+      response: {
+        id: "resp_summary",
+        object: "response",
+        status: "completed",
+        output: [],
+        usage: {
+          input_tokens: 10,
+          output_tokens: 8,
+          output_tokens_details: { reasoning_tokens: 5 },
+          total_tokens: 18
+        }
+      }
+    }
+  ];
+
+  const forwarded = await collectNormalizedEvents(codexSse(events));
+  assert.deepEqual(
+    forwarded.find((event) => event.type === summaryDelta.type),
+    summaryDelta
+  );
+  const terminal = forwarded.find((event) => event.type === "response.completed");
+  assert.deepEqual(
+    (terminal?.response as { output?: unknown[] } | undefined)?.output,
+    [reasoningItem]
+  );
+
+  const completed = await collectCodexResponsesResponse(codexSse(events).body);
+  assert.deepEqual(completed.output, [reasoningItem]);
+});
+
+test("does not promote private reasoning to a public summary", async () => {
+  const privateDelta = {
+    type: "response.reasoning_text.delta",
+    item_id: "reason_private",
+    output_index: 0,
+    content_index: 0,
+    delta: "private reasoning must remain private"
+  };
+  const reasoningItem = {
+    type: "reasoning",
+    id: "reason_private",
+    content: [],
+    encrypted_content: "opaque-private-state",
+    summary: []
+  };
+  const events = [
+    { type: "response.output_item.added", output_index: 0, item: reasoningItem },
+    privateDelta,
+    { type: "response.output_item.done", output_index: 0, item: reasoningItem },
+    {
+      type: "response.completed",
+      response: {
+        id: "resp_private",
+        object: "response",
+        status: "completed",
+        output: [],
+        usage: {
+          input_tokens: 10,
+          output_tokens: 8,
+          output_tokens_details: { reasoning_tokens: 5 },
+          total_tokens: 18
+        }
+      }
+    }
+  ];
+
+  const forwarded = await collectNormalizedEvents(codexSse(events));
+  assert.deepEqual(
+    forwarded.find((event) => event.type === privateDelta.type),
+    privateDelta
+  );
+  assert.equal(
+    forwarded.some((event) =>
+      typeof event.type === "string" && event.type.startsWith("response.reasoning_summary_")),
+    false
+  );
+  const terminal = forwarded.find((event) => event.type === "response.completed");
+  const output = (terminal?.response as {
+    output?: Array<Record<string, unknown>>;
+  } | undefined)?.output;
+  assert.deepEqual(output?.[0]?.summary, []);
+  assert.equal(output?.[0]?.encrypted_content, "opaque-private-state");
 });
 
 test("serves non-streaming and streaming Responses alongside Anthropic Messages", async () => {
@@ -337,4 +478,18 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<voi
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+}
+
+async function collectNormalizedEvents(response: Response): Promise<Array<Record<string, unknown>>> {
+  const events: Array<Record<string, unknown>> = [];
+  for await (const frame of normalizeCodexResponsesStream(response.body)) {
+    const data = frame
+      .split("\n")
+      .find((line) => line.startsWith("data: "))
+      ?.slice("data: ".length);
+    if (data && data !== "[DONE]") {
+      events.push(JSON.parse(data) as Record<string, unknown>);
+    }
+  }
+  return events;
 }
