@@ -65,6 +65,7 @@ Codex Bridge supports exactly:
 
 | Model | Maximum context window | Effective context window |
 | --- | ---: | ---: |
+| `gpt-6-astra` | 272,000 tokens | approximately 258,400 tokens |
 | `gpt-5.6-sol` | 272,000 tokens | approximately 258,400 tokens |
 | `gpt-5.6-luna` | 272,000 tokens | approximately 258,400 tokens |
 
@@ -182,7 +183,7 @@ billing or exact context-window accounting.
 | `CODEX_BRIDGE_HOST` | `127.0.0.1` | Bind address |
 | `CODEX_BRIDGE_PORT` | `3456` | Bind port |
 | `CODEX_HOME` | `~/.codex` | Existing Codex home |
-| `CODEX_BRIDGE_MODEL` | request model | Force `gpt-5.6-sol` or `gpt-5.6-luna` |
+| `CODEX_BRIDGE_MODEL` | request model | Force `gpt-6-astra`, `gpt-5.6-sol`, or `gpt-5.6-luna` |
 | `CODEX_BRIDGE_DEFAULT_EFFORT` | `medium` | Default reasoning effort |
 | `CODEX_BRIDGE_BODY_LIMIT_BYTES` | `33554432` | Maximum JSON request size |
 | `CODEX_BRIDGE_LOG_LEVEL` | `info` | `silent`, `error`, or `info` |

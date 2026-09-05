@@ -23,7 +23,7 @@ test("live Codex models expose public reasoning summaries through the Bridge", {
   const running = await startBridgeServer({ config });
   try {
     const prompt = "Compare two safe rollout strategies, identify one failure mode for each, and recommend one.";
-    for (const model of ["gpt-5.6-sol", "gpt-5.6-luna"]) {
+    for (const model of ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna"]) {
       const response = await fetch(`${running.url}/v1/responses`, {
         method: "POST",
         headers: {
@@ -32,7 +32,7 @@ test("live Codex models expose public reasoning summaries through the Bridge", {
         },
         body: JSON.stringify({
           model,
-          input: model === "gpt-5.6-sol"
+          input: model !== "gpt-5.6-luna"
             ? prompt
             : [{
                 type: "message",
@@ -41,7 +41,7 @@ test("live Codex models expose public reasoning summaries through the Bridge", {
               }],
           stream: true,
           store: false,
-          reasoning: { effort: "high", summary: "auto" }
+          reasoning: { effort: model === "gpt-6-astra" ? "max" : "high", summary: "auto" }
         })
       });
       const body = await response.text();

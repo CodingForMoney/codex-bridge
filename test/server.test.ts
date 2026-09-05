@@ -49,7 +49,7 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
     assert.equal(models.status, 200);
     assert.deepEqual(
       (await models.json() as { data: Array<{ id: string }> }).data.map((model) => model.id),
-      ["gpt-5.6-sol", "gpt-5.6-luna"]
+      ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna"]
     );
 
     const count = await fetch(`${running.url}/v1/messages/count_tokens`, {

@@ -14,7 +14,7 @@ Codex Bridge will:
 - translate Codex responses and streams back to Anthropic-compatible responses
 - validate and forward the supported OpenAI Responses subset without an
   unnecessary protocol translation
-- support only `gpt-5.6-sol` and `gpt-5.6-luna`
+- support only `gpt-6-astra`, `gpt-5.6-sol`, and `gpt-5.6-luna`
 - run as a local service with no remote management dependency
 
 Codex Bridge will not:
