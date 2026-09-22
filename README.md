@@ -40,7 +40,7 @@ bridge. This leaves normal Claude Code sessions unchanged:
 export CB_API_KEY="copy-the-key-printed-by-codex-bridge"
 ANTHROPIC_BASE_URL="http://127.0.0.1:3456" \
 ANTHROPIC_AUTH_TOKEN="$CB_API_KEY" \
-claude --model gpt-5.6-sol
+claude --model gpt-6-sol
 ```
 
 OpenAI Responses clients can use the same server and key:
@@ -54,7 +54,7 @@ const client = new OpenAI({
 });
 
 const response = await client.responses.create({
-  model: "gpt-5.6-sol",
+  model: "gpt-6-sol",
   input: "Hello"
 });
 ```
@@ -66,8 +66,8 @@ Codex Bridge supports exactly:
 | Model | Maximum context window | Effective context window |
 | --- | ---: | ---: |
 | `gpt-6-astra` | 272,000 tokens | approximately 258,400 tokens |
-| `gpt-5.6-sol` | 272,000 tokens | approximately 258,400 tokens |
-| `gpt-5.6-luna` | 272,000 tokens | approximately 258,400 tokens |
+| `gpt-6-sol` | 272,000 tokens | approximately 258,400 tokens |
+| `gpt-6-luna` | 272,000 tokens | approximately 258,400 tokens |
 
 The effective window is 95% of the maximum window according to the current
 Codex model metadata. These limits are controlled by the upstream model and may
@@ -148,12 +148,12 @@ Pass the returned `output` items plus the next user message to
 
 ```javascript
 const compacted = await client.responses.compact({
-  model: "gpt-5.6-sol",
+  model: "gpt-6-sol",
   input: completeHistory
 });
 
 const next = await client.responses.create({
-  model: "gpt-5.6-sol",
+  model: "gpt-6-sol",
   input: [...compacted.output, { role: "user", content: "Continue." }]
 });
 ```
@@ -183,7 +183,7 @@ billing or exact context-window accounting.
 | `CODEX_BRIDGE_HOST` | `127.0.0.1` | Bind address |
 | `CODEX_BRIDGE_PORT` | `3456` | Bind port |
 | `CODEX_HOME` | `~/.codex` | Existing Codex home |
-| `CODEX_BRIDGE_MODEL` | request model | Force `gpt-6-astra`, `gpt-5.6-sol`, or `gpt-5.6-luna` |
+| `CODEX_BRIDGE_MODEL` | request model | Force `gpt-6-astra`, `gpt-6-sol`, or `gpt-6-luna` |
 | `CODEX_BRIDGE_DEFAULT_EFFORT` | `medium` | Default reasoning effort |
 | `CODEX_BRIDGE_BODY_LIMIT_BYTES` | `33554432` | Maximum JSON request size |
 | `CODEX_BRIDGE_LOG_LEVEL` | `info` | `silent`, `error`, or `info` |

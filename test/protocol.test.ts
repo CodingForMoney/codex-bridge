@@ -9,7 +9,7 @@ import { codexSse } from "./helpers.js";
 test("converts Anthropic messages, tools, results, and encrypted reasoning", () => {
   const envelope = encodeReasoningEnvelope("reason_1", "encrypted-value");
   const converted = convertAnthropicRequest({
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     system: [{ type: "text", text: "system rule" }],
     reasoning_effort: "ultracode",
     tools: [{ name: "read_file", description: "Read", input_schema: { type: "object" } }],
@@ -26,7 +26,7 @@ test("converts Anthropic messages, tools, results, and encrypted reasoning", () 
     ]
   });
 
-  assert.equal(converted.responses.model, "gpt-5.6-sol");
+  assert.equal(converted.responses.model, "gpt-6-sol");
   assert.equal(converted.responses.instructions, "system rule");
   assert.equal(converted.responses.reasoning.effort, "xhigh");
   assert.equal(converted.responses.store, false);
@@ -38,7 +38,7 @@ test("converts Anthropic messages, tools, results, and encrypted reasoning", () 
 
 test("promotes system-role messages to Responses instructions", () => {
   const converted = convertAnthropicRequest({
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     messages: [
       { role: "system", content: "first rule" },
       { role: "user", content: "hello" },
@@ -54,7 +54,7 @@ test("promotes system-role messages to Responses instructions", () => {
 
 test("places top-level system instructions before system-role messages", () => {
   const converted = convertAnthropicRequest({
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     system: "top-level rule",
     messages: [
       { role: "system", content: "message rule" },
@@ -69,19 +69,19 @@ test("continues to reject unknown message roles", () => {
   assert.throws(
     () =>
       convertAnthropicRequest({
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         messages: [{ role: "developer", content: "rule" }, { role: "user", content: "hello" }]
       }),
     /Unsupported Anthropic message role: developer/
   );
 });
 
-test("rejects reasoning efforts unsupported by the GPT-5.6 Responses API", () => {
+test("rejects unsupported reasoning efforts", () => {
   for (const effort of ["minimal", "ultra"]) {
     assert.throws(
       () =>
         convertAnthropicRequest({
-          model: "gpt-5.6-sol",
+          model: "gpt-6-sol",
           reasoning_effort: effort,
           messages: [{ role: "user", content: "hello" }]
         }),
@@ -92,7 +92,7 @@ test("rejects reasoning efforts unsupported by the GPT-5.6 Responses API", () =>
 
 test("enforces a named Anthropic tool choice using the Codex string contract", () => {
   const converted = convertAnthropicRequest({
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     messages: [{ role: "user", content: "run one tool" }],
     tools: [
       { name: "first", input_schema: { type: "object" } },

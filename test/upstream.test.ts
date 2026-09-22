@@ -10,7 +10,7 @@ import type { CodexCompactRequest, CodexResponsesRequest } from "../src/protocol
 import { jwt, writeCodexAuth } from "./helpers.js";
 
 const request: CodexResponsesRequest = {
-  model: "gpt-5.6-sol",
+  model: "gpt-6-sol",
   instructions: "test",
   input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
   tool_choice: "auto",
@@ -23,7 +23,7 @@ const request: CodexResponsesRequest = {
 };
 
 const compactRequest: CodexCompactRequest = {
-  model: "gpt-5.6-sol",
+  model: "gpt-6-sol",
   input: [{ role: "user", content: "compact me" }],
   parallel_tool_calls: false
 };
@@ -120,7 +120,7 @@ test("sends compact requests through the Codex Responses compaction trigger", as
   assert.equal(observed.get("accept"), "text/event-stream");
   assert.equal(observed.get("content-type"), "application/json");
   assert.deepEqual(JSON.parse(observedBody), {
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     instructions: "",
     input: [
       { role: "user", content: "compact me" },

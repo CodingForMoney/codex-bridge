@@ -17,7 +17,7 @@ import { codexSse, writeCodexAuth } from "./helpers.js";
 
 test("normalizes the supported Responses request subset for the Codex backend", () => {
   const converted = convertResponsesRequest({
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     instructions: "Be precise.",
     input: "hello",
     stream: false,
@@ -71,7 +71,7 @@ test("rejects Responses features that require unsupported backend behavior", () 
   for (const entry of cases) {
     assert.throws(
       () => convertResponsesRequest({
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         input: "hello",
         ...entry.request
       }),
@@ -85,7 +85,7 @@ test("rejects Responses features that require unsupported backend behavior", () 
 
 test("accepts native Responses text, image, tool, and encrypted reasoning history", () => {
   const converted = convertResponsesRequest({
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     input: [
       {
         type: "message",
@@ -110,7 +110,7 @@ test("collects a terminal Codex stream into a native Responses object", async ()
     id: "resp_native",
     object: "response",
     status: "completed",
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     output: [{ type: "message", id: "msg_1", role: "assistant", content: [] }],
     usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 }
   };
@@ -310,7 +310,7 @@ test("serves non-streaming and streaming Responses alongside Anthropic Messages"
     const unauthorized = await fetch(`${running.url}/v1/responses`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: "gpt-5.6-sol", input: "hello" })
+      body: JSON.stringify({ model: "gpt-6-sol", input: "hello" })
     });
     const unauthorizedBody = await unauthorized.json() as Record<string, unknown>;
     assert.equal(unauthorized.status, 401);
@@ -320,7 +320,7 @@ test("serves non-streaming and streaming Responses alongside Anthropic Messages"
     const nonStreaming = await fetch(`${running.url}/v1/responses`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "gpt-5.6-sol", input: "hello" })
+      body: JSON.stringify({ model: "gpt-6-sol", input: "hello" })
     });
     assert.equal(nonStreaming.status, 200);
     assert.equal((await nonStreaming.json() as { id: string }).id, "resp_1");
@@ -330,7 +330,7 @@ test("serves non-streaming and streaming Responses alongside Anthropic Messages"
     const streaming = await fetch(`${running.url}/v1/responses`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "gpt-5.6-luna", input: "hello", stream: true })
+      body: JSON.stringify({ model: "gpt-6-luna", input: "hello", stream: true })
     });
     const streamedText = await streaming.text();
     assert.equal(streaming.status, 200);
@@ -344,7 +344,7 @@ test("serves non-streaming and streaming Responses alongside Anthropic Messages"
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         messages: [{ role: "user", content: "hello" }]
       })
     });
@@ -354,7 +354,7 @@ test("serves non-streaming and streaming Responses alongside Anthropic Messages"
     const unsupported = await fetch(`${running.url}/v1/responses`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "gpt-5.6-sol", input: "hello", store: true })
+      body: JSON.stringify({ model: "gpt-6-sol", input: "hello", store: true })
     });
     const unsupportedBody = await unsupported.json() as { error: { code: string } };
     assert.equal(unsupported.status, 400);
@@ -397,7 +397,7 @@ test("cancels a native Responses upstream stream when the client disconnects", a
     const response = await fetch(`${running.url}/v1/responses`, {
       method: "POST",
       headers: { authorization: "Bearer local-secret", "content-type": "application/json" },
-      body: JSON.stringify({ model: "gpt-5.6-sol", input: "hello", stream: true }),
+      body: JSON.stringify({ model: "gpt-6-sol", input: "hello", stream: true }),
       signal: controller.signal
     });
     const reader = response.body?.getReader();
@@ -429,7 +429,7 @@ test("returns an OpenAI error before starting a stream when the upstream body is
     const response = await fetch(`${running.url}/v1/responses`, {
       method: "POST",
       headers: { authorization: "Bearer local-secret", "content-type": "application/json" },
-      body: JSON.stringify({ model: "gpt-5.6-sol", input: "hello", stream: true })
+      body: JSON.stringify({ model: "gpt-6-sol", input: "hello", stream: true })
     });
     const body = await response.json() as { error: { code: string } };
     assert.equal(response.status, 502);

@@ -18,7 +18,7 @@ test("normalizes compact history and preserves opaque compaction items", () => {
     future_field: { retained: true }
   };
   const converted = convertResponsesCompactRequest({
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     instructions: "Preserve the working state.",
     input: [
       { role: "user", content: "Build the feature." },
@@ -33,12 +33,12 @@ test("normalizes compact history and preserves opaque compaction items", () => {
     prompt_cache_key: "thread-1"
   });
 
-  assert.equal(converted.requestedModel, "gpt-5.6-sol");
+  assert.equal(converted.requestedModel, "gpt-6-sol");
   assert.equal(converted.compact.parallel_tool_calls, true);
   assert.deepEqual(converted.compact.input.at(-1), compaction);
 
   const continuation = convertResponsesRequest({
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     input: [compaction, { role: "user", content: "Continue." }]
   });
   assert.deepEqual(continuation.responses.input[0], compaction);
@@ -47,14 +47,14 @@ test("normalizes compact history and preserves opaque compaction items", () => {
 test("rejects malformed compact requests and unsupported compact controls", () => {
   assert.throws(
     () => convertResponsesCompactRequest({
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       input: [{ type: "compaction", id: "cmp_missing_content" }]
     }),
     /require encrypted_content/
   );
   assert.throws(
     () => convertResponsesCompactRequest({
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       input: [{ role: "user", content: "hello" }],
       previous_response_id: "resp_server_state"
     }),
@@ -62,7 +62,7 @@ test("rejects malformed compact requests and unsupported compact controls", () =
   );
   assert.throws(
     () => convertResponsesCompactRequest({
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       input: [{ role: "user", content: "hello" }],
       stream: true
     }),
@@ -85,7 +85,7 @@ test("compacts a complete history and continues through Responses without rewrit
     id: "resp_compacted",
     object: "response",
     status: "completed",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     created_at: 1_765_000_000,
     output: [opaqueCompaction],
     usage: {
@@ -157,7 +157,7 @@ test("compacts a complete history and continues through Responses without rewrit
     const initial = await fetch(`${running.url}/v1/responses`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "gpt-5.6-sol", input: "Build the feature." })
+      body: JSON.stringify({ model: "gpt-6-sol", input: "Build the feature." })
     });
     assert.equal(initial.status, 200);
     assert.equal((await initial.json() as { id: string }).id, "resp_before_compact");
@@ -171,7 +171,7 @@ test("compacts a complete history and continues through Responses without rewrit
     const compact = await fetch(`${running.url}/v1/responses/compact`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "gpt-5.6-sol", input: history })
+      body: JSON.stringify({ model: "gpt-6-sol", input: history })
     });
     assert.equal(compact.status, 200);
     const compacted = await compact.json() as {
@@ -195,7 +195,7 @@ test("compacts a complete history and continues through Responses without rewrit
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         input: [...compacted.output, { role: "user", content: "Continue and call finish." }],
         tools: [{ type: "function", name: "finish", parameters: { type: "object" } }]
       })
@@ -226,7 +226,7 @@ test("compacts a complete history and continues through Responses without rewrit
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         input: [{ type: "compaction", id: "", encrypted_content: secret }]
       })
     });
@@ -277,7 +277,7 @@ test("cancels the compact upstream stream when the client disconnects", async ()
       method: "POST",
       headers: { authorization: "Bearer local-secret", "content-type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         input: [{ role: "user", content: "Compact this." }]
       }),
       signal: controller.signal

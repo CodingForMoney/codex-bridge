@@ -49,13 +49,13 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
     assert.equal(models.status, 200);
     assert.deepEqual(
       (await models.json() as { data: Array<{ id: string }> }).data.map((model) => model.id),
-      ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna"]
+      ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
     );
 
     const count = await fetch(`${running.url}/v1/messages/count_tokens`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "gpt-5.6-sol", messages: [{ role: "user", content: "hello" }] })
+      body: JSON.stringify({ model: "gpt-6-sol", messages: [{ role: "user", content: "hello" }] })
     });
     assert.equal(count.status, 200);
     assert.equal(typeof (await count.json() as { input_tokens: number }).input_tokens, "number");
@@ -64,7 +64,7 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         max_tokens: 100,
         messages: [
           { role: "system", content: "server system rule" },
@@ -75,7 +75,7 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
     const message = await messages.json() as { content: Array<{ text?: string }> };
     assert.equal(message.content[0]?.text, "bridge response");
     assert.equal(requests[0]?.store, false);
-    assert.equal(requests[0]?.model, "gpt-5.6-luna");
+    assert.equal(requests[0]?.model, "gpt-6-luna");
     assert.equal(requests[0]?.instructions, "server system rule");
     assert.deepEqual(requests[0]?.include, ["reasoning.encrypted_content"]);
 
@@ -86,6 +86,17 @@ test("serves authenticated Anthropic-compatible endpoints without writing Codex 
     });
     assert.equal(unsupported.status, 400);
     assert.equal((await unsupported.json() as { error: { code: string } }).error.code, "CODEX_MODEL_UNAVAILABLE");
+    assert.equal(requests.length, 1);
+
+    for (const retiredModel of ["gpt-5.6-sol", "gpt-5.6-luna"]) {
+      const retired = await fetch(`${running.url}/v1/messages`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ model: retiredModel, messages: [{ role: "user", content: "hello" }] })
+      });
+      assert.equal(retired.status, 400);
+      assert.equal((await retired.json() as { error: { code: string } }).error.code, "CODEX_MODEL_UNAVAILABLE");
+    }
     assert.equal(requests.length, 1);
 
     const status = await fetch(`${running.url}/auth/status`, { headers });
@@ -179,7 +190,7 @@ test("aborts and cancels the upstream stream when the client disconnects", async
       method: "POST",
       headers: { "x-api-key": "local-secret", "content-type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         stream: true,
         messages: [{ role: "user", content: "hello" }]
       }),

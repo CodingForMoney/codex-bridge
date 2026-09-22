@@ -4,26 +4,26 @@ import type { BridgeConfig } from "../src/config/config.js";
 import { startBridgeServer } from "../src/server/app.js";
 
 const RUN_LIVE = process.env.CODEX_BRIDGE_RUN_LIVE_TESTS === "1";
+const LIVE_CONFIG: BridgeConfig = {
+  host: "127.0.0.1",
+  port: 0,
+  apiKey: "live-conformance-key",
+  ...(process.env.CODEX_HOME?.trim() ? { codexHome: process.env.CODEX_HOME.trim() } : {}),
+  codexBaseUrl: "https://chatgpt.com/backend-api/codex",
+  codexClientVersion: "0.139.0",
+  defaultEffort: "high",
+  bodyLimitBytes: 1024 * 1024,
+  logLevel: "silent"
+};
 
 test("live Codex models expose public reasoning summaries through the Bridge", {
   skip: !RUN_LIVE,
   timeout: 120_000
 }, async () => {
-  const config: BridgeConfig = {
-    host: "127.0.0.1",
-    port: 0,
-    apiKey: "live-conformance-key",
-    ...(process.env.CODEX_HOME?.trim() ? { codexHome: process.env.CODEX_HOME.trim() } : {}),
-    codexBaseUrl: "https://chatgpt.com/backend-api/codex",
-    codexClientVersion: "0.139.0",
-    defaultEffort: "high",
-    bodyLimitBytes: 1024 * 1024,
-    logLevel: "silent"
-  };
-  const running = await startBridgeServer({ config });
+  const running = await startBridgeServer({ config: LIVE_CONFIG });
   try {
     const prompt = "Compare two safe rollout strategies, identify one failure mode for each, and recommend one.";
-    for (const model of ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna"]) {
+    for (const model of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]) {
       const response = await fetch(`${running.url}/v1/responses`, {
         method: "POST",
         headers: {
@@ -32,7 +32,7 @@ test("live Codex models expose public reasoning summaries through the Bridge", {
         },
         body: JSON.stringify({
           model,
-          input: model !== "gpt-5.6-luna"
+          input: model !== "gpt-6-luna"
             ? prompt
             : [{
                 type: "message",
@@ -61,6 +61,66 @@ test("live Codex models expose public reasoning summaries through the Bridge", {
         `${model} terminal reasoning item returned no public summary.`
       );
       assert.equal(typeof reasoning?.encrypted_content, "string");
+    }
+  } finally {
+    await running.close();
+  }
+});
+
+test("new Codex models support Messages and compacted Responses continuation", {
+  skip: !RUN_LIVE,
+  timeout: 180_000
+}, async () => {
+  const running = await startBridgeServer({ config: LIVE_CONFIG });
+  const headers = {
+    authorization: "Bearer live-conformance-key",
+    "content-type": "application/json"
+  };
+  try {
+    for (const model of ["gpt-6-sol", "gpt-6-luna"]) {
+      const codeword = `${model.replaceAll("-", "_").toUpperCase()}_OK`;
+      const message = await fetch(`${running.url}/v1/messages`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model,
+          max_tokens: 64,
+          messages: [{ role: "user", content: `Reply with exactly ${codeword}.` }]
+        })
+      });
+      const messageBody = await message.text();
+      assert.equal(message.status, 200, `${model} Messages: ${messageBody.slice(0, 500)}`);
+      assert.ok(messageBody.includes(codeword), `${model} Messages response omitted the codeword.`);
+
+      const compact = await fetch(`${running.url}/v1/responses/compact`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model,
+          input: [
+            { role: "user", content: `Remember the codeword ${codeword}.` },
+            { role: "assistant", content: `I will remember ${codeword}.` }
+          ]
+        })
+      });
+      const compactBody = await compact.text();
+      assert.equal(compact.status, 200, `${model} compact: ${compactBody.slice(0, 500)}`);
+      const compacted = JSON.parse(compactBody) as { output: Array<Record<string, unknown>> };
+      assert.ok(compacted.output.some((item) =>
+        item.type === "compaction" && typeof item.encrypted_content === "string"
+      ));
+
+      const next = await fetch(`${running.url}/v1/responses`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model,
+          input: [...compacted.output, { role: "user", content: "What codeword did I ask you to remember? Reply with only the codeword." }]
+        })
+      });
+      const nextBody = await next.text();
+      assert.equal(next.status, 200, `${model} continuation: ${nextBody.slice(0, 500)}`);
+      assert.ok(nextBody.includes(codeword), `${model} continuation lost the codeword.`);
     }
   } finally {
     await running.close();
