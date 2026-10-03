@@ -2,7 +2,7 @@ import { BridgeError } from "./errors.js";
 
 export const SUPPORTED_MODELS = [
   { id: "gpt-6-astra", displayName: "GPT-6 Astra" },
-  { id: "gpt-6-sol", displayName: "GPT-6 Sol" },
+  { id: "gpt-6.1-sol", displayName: "GPT-6.1 Sol" },
   { id: "gpt-6-luna", displayName: "GPT-6 Luna" }
 ] as const;
 

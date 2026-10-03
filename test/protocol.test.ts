@@ -9,7 +9,7 @@ import { codexSse } from "./helpers.js";
 test("converts Anthropic messages, tools, results, and encrypted reasoning", () => {
   const envelope = encodeReasoningEnvelope("reason_1", "encrypted-value");
   const converted = convertAnthropicRequest({
-    model: "gpt-6-sol",
+    model: "gpt-6.1-sol",
     system: [{ type: "text", text: "system rule" }],
     reasoning_effort: "ultracode",
     tools: [{ name: "read_file", description: "Read", input_schema: { type: "object" } }],
@@ -26,7 +26,7 @@ test("converts Anthropic messages, tools, results, and encrypted reasoning", () 
     ]
   });
 
-  assert.equal(converted.responses.model, "gpt-6-sol");
+  assert.equal(converted.responses.model, "gpt-6.1-sol");
   assert.equal(converted.responses.instructions, "system rule");
   assert.equal(converted.responses.reasoning.effort, "xhigh");
   assert.equal(converted.responses.store, false);
@@ -38,7 +38,7 @@ test("converts Anthropic messages, tools, results, and encrypted reasoning", () 
 
 test("promotes system-role messages to Responses instructions", () => {
   const converted = convertAnthropicRequest({
-    model: "gpt-6-sol",
+    model: "gpt-6.1-sol",
     messages: [
       { role: "system", content: "first rule" },
       { role: "user", content: "hello" },
@@ -69,7 +69,7 @@ test("continues to reject unknown message roles", () => {
   assert.throws(
     () =>
       convertAnthropicRequest({
-        model: "gpt-6-sol",
+        model: "gpt-6.1-sol",
         messages: [{ role: "developer", content: "rule" }, { role: "user", content: "hello" }]
       }),
     /Unsupported Anthropic message role: developer/
@@ -81,7 +81,7 @@ test("rejects unsupported reasoning efforts", () => {
     assert.throws(
       () =>
         convertAnthropicRequest({
-          model: "gpt-6-sol",
+          model: "gpt-6.1-sol",
           reasoning_effort: effort,
           messages: [{ role: "user", content: "hello" }]
         }),

@@ -16,14 +16,14 @@ const LIVE_CONFIG: BridgeConfig = {
   logLevel: "silent"
 };
 
-test("live Codex models expose public reasoning summaries through the Bridge", {
+test("live Codex Astra and Sol expose public reasoning summaries through the Bridge", {
   skip: !RUN_LIVE,
   timeout: 120_000
 }, async () => {
   const running = await startBridgeServer({ config: LIVE_CONFIG });
   try {
     const prompt = "Compare two safe rollout strategies, identify one failure mode for each, and recommend one.";
-    for (const model of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]) {
+    for (const model of ["gpt-6-astra", "gpt-6.1-sol"]) {
       const response = await fetch(`${running.url}/v1/responses`, {
         method: "POST",
         headers: {
@@ -32,13 +32,7 @@ test("live Codex models expose public reasoning summaries through the Bridge", {
         },
         body: JSON.stringify({
           model,
-          input: model !== "gpt-6-luna"
-            ? prompt
-            : [{
-                type: "message",
-                role: "user",
-                content: [{ type: "input_text", text: prompt }]
-              }],
+          input: prompt,
           stream: true,
           store: false,
           reasoning: { effort: model === "gpt-6-astra" ? "max" : "high", summary: "auto" }
@@ -77,7 +71,7 @@ test("new Codex models support Messages and compacted Responses continuation", {
     "content-type": "application/json"
   };
   try {
-    for (const model of ["gpt-6-sol", "gpt-6-luna"]) {
+    for (const model of ["gpt-6.1-sol", "gpt-6-luna"]) {
       const codeword = `${model.replaceAll("-", "_").toUpperCase()}_OK`;
       const message = await fetch(`${running.url}/v1/messages`, {
         method: "POST",
