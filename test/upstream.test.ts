@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { CodexCredentialReader } from "../src/auth/credential-reader.js";
 import { BridgeError } from "../src/errors.js";
 import { CodexClient } from "../src/upstream/codex-client.js";
@@ -202,3 +202,158 @@ test("classifies compact endpoint, model, and context limit failures", async (co
     });
   }
 });
+
+test("recovers from transient network failures before returning a response", async (context) => {
+  for (const code of ["ECONNRESET", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET"]) {
+    await context.test(code, async (t) => {
+      let calls = 0;
+      const client = await retryClient(t, async () => {
+        if (++calls < 3) throw networkFailure(code);
+        return new Response("recovered");
+      });
+      assert.equal(await (await client.createResponse(request)).text(), "recovered");
+      assert.equal(calls, 3);
+    });
+  }
+});
+
+test("retries selected HTTP failures and preserves the last failure when exhausted", async (context) => {
+  for (const status of [408, 429, 500, 502, 503, 504]) {
+    await context.test(String(status), async (t) => {
+      let calls = 0;
+      const client = await retryClient(t, async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ error: { message: `upstream unavailable attempt ${calls}` } }), { status });
+      });
+      await assert.rejects(() => client.createResponse(request), (error: unknown) =>
+        error instanceof BridgeError && error.statusCode === status &&
+        error.message === "upstream unavailable attempt 3" && error.retryable);
+      assert.equal(calls, 3);
+    });
+  }
+});
+
+test("does not retry invalid requests, permission errors, or permanent connection failures", async (context) => {
+  for (const status of [400, 401, 403, 404, 501]) {
+    await context.test(`HTTP ${status}`, async (t) => {
+      let calls = 0;
+      const client = await retryClient(t, async () => {
+        calls += 1;
+        return new Response("rejected", { status });
+      });
+      await assert.rejects(() => client.createResponse(request), (error: unknown) =>
+        error instanceof BridgeError && error.statusCode === status && !error.retryable);
+      assert.equal(calls, 1);
+    });
+  }
+  for (const code of ["ENOTFOUND", "CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID"]) {
+    await context.test(code, async (t) => {
+      let calls = 0;
+      const client = await retryClient(t, async () => {
+        calls += 1;
+        throw networkFailure(code);
+      });
+      await assert.rejects(() => client.createResponse(request), (error: unknown) =>
+        error instanceof BridgeError && error.code === "CODEX_UPSTREAM_UNREACHABLE" && !error.retryable);
+      assert.equal(calls, 1);
+    });
+  }
+});
+
+test("allows disabling network retries", async (t) => {
+  let calls = 0;
+  const client = await retryClient(t, async () => {
+    calls += 1;
+    throw networkFailure("ECONNRESET");
+  }, { maxRetries: 0 });
+  await assert.rejects(() => client.createResponse(request), { code: "CODEX_UPSTREAM_UNREACHABLE" });
+  assert.equal(calls, 1);
+});
+
+test("retries compaction requests using the same network policy", async (t) => {
+  let calls = 0;
+  const client = await retryClient(t, async () => {
+    if (++calls === 1) throw networkFailure("EAI_AGAIN");
+    return new Response("compacted");
+  });
+  assert.equal(await (await client.compactResponse(compactRequest)).text(), "compacted");
+  assert.equal(calls, 2);
+});
+
+test("stops a retry backoff immediately when the caller cancels", { timeout: 2_000 }, async (t) => {
+  const controller = new AbortController();
+  let failed!: () => void;
+  const firstFailure = new Promise<void>((resolve) => { failed = resolve; });
+  let calls = 0;
+  const client = await retryClient(t, async () => {
+    calls += 1;
+    failed();
+    throw networkFailure("ECONNRESET");
+  }, { retryDelayMs: 10_000 });
+  const result = assert.rejects(() => client.createResponse(request, controller.signal), { name: "AbortError" });
+  await firstFailure;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  controller.abort();
+  await result;
+  assert.equal(calls, 1);
+});
+
+test("cancellation wins when it races with a connection failure", async (t) => {
+  const controller = new AbortController();
+  let calls = 0;
+  const client = await retryClient(t, async () => {
+    calls += 1;
+    controller.abort();
+    throw networkFailure("ECONNRESET");
+  });
+  await assert.rejects(() => client.createResponse(request, controller.signal), { name: "AbortError" });
+  assert.equal(calls, 1);
+});
+
+test("honors Retry-After while allowing cancellation during the wait", { timeout: 2_000 }, async (t) => {
+  const controller = new AbortController();
+  let returned!: () => void;
+  const firstResponse = new Promise<void>((resolve) => { returned = resolve; });
+  let calls = 0;
+  const client = await retryClient(t, async () => {
+    calls += 1;
+    returned();
+    return new Response("busy", { status: 429, headers: { "retry-after": "60" } });
+  });
+  const result = assert.rejects(() => client.createResponse(request, controller.signal), { name: "AbortError" });
+  await firstResponse;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(calls, 1);
+  controller.abort();
+  await result;
+});
+
+test("does not dispatch an already-cancelled request", async (t) => {
+  let calls = 0;
+  const client = await retryClient(t, async () => {
+    calls += 1;
+    return new Response("unexpected");
+  });
+  await assert.rejects(() => client.createResponse(request, AbortSignal.abort()), { name: "AbortError" });
+  assert.equal(calls, 0);
+});
+
+function networkFailure(code: string): TypeError {
+  return new TypeError("fetch failed", { cause: Object.assign(new Error("connection failed"), { code, syscall: "connect" }) });
+}
+
+async function retryClient(
+  t: TestContext,
+  fetchImpl: typeof fetch,
+  options: { maxRetries?: number; retryDelayMs?: number } = {}
+): Promise<CodexClient> {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-bridge-retry-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeCodexAuth(home);
+  return new CodexClient({
+    credentialReader: new CodexCredentialReader({ codexHome: home }),
+    fetchImpl,
+    retryDelayMs: 0,
+    ...options
+  });
+}

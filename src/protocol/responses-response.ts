@@ -1,4 +1,4 @@
-import { BridgeError } from "../errors.js";
+import { asBridgeError, BridgeError, formatErrorMessage, redactSecrets } from "../errors.js";
 import { parseEvent } from "./anthropic-response.js";
 import { encodeSse, parseSseStream } from "./sse.js";
 
@@ -35,15 +35,51 @@ export async function* normalizeCodexResponsesStream(
   signal?: AbortSignal
 ): AsyncGenerator<string> {
   const accumulator = new NativeResponsesAccumulator();
-  for await (const frame of parseSseStream(body, signal)) {
-    if (frame.data === "[DONE]") {
-      yield "data: [DONE]\n\n";
-      continue;
+  let terminal = false;
+  let lastSequence = -1;
+  try {
+    for await (const frame of parseSseStream(body, signal)) {
+      if (frame.data === "[DONE]") {
+        if (!terminal) throw invalidResponse("Codex stream ended without a terminal Responses event.");
+        yield "data: [DONE]\n\n";
+        return;
+      }
+      const event = accumulator.accept(parseEvent(frame.data));
+      const type = readString(event.type) ?? frame.event ?? "message";
+      if (typeof event.sequence_number === "number" && Number.isInteger(event.sequence_number)) {
+        lastSequence = Math.max(lastSequence, event.sequence_number);
+      }
+      if (["response.completed", "response.incomplete", "response.failed", "error"].includes(type)) terminal = true;
+      yield encodeSse(frame.event ?? type,
+        type === "error" || type === "response.failed" ? redactEventError(event) : event);
     }
-    const event = accumulator.accept(parseEvent(frame.data));
-    const type = readString(event.type) ?? frame.event ?? "message";
-    yield encodeSse(frame.event ?? type, event);
+    if (!terminal) throw invalidResponse("Codex stream ended without a terminal Responses event.");
+  } catch (error) {
+    if (signal?.aborted || terminal) return;
+    const bridgeError = asBridgeError(error);
+    yield encodeSse("error", {
+      type: "error",
+      code: bridgeError.code,
+      message: formatErrorMessage(bridgeError),
+      param: null,
+      sequence_number: lastSequence + 1
+    });
   }
+}
+
+function redactEventError(event: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...event };
+  if (typeof result.message === "string") result.message = redactSecrets(result.message);
+  const error = record(result.error);
+  if (error && typeof error.message === "string") {
+    result.error = { ...error, message: redactSecrets(error.message) };
+  }
+  const response = record(result.response);
+  const responseError = record(response?.error);
+  if (response && responseError && typeof responseError.message === "string") {
+    result.response = { ...response, error: { ...responseError, message: redactSecrets(responseError.message) } };
+  }
+  return result;
 }
 
 class NativeResponsesAccumulator {

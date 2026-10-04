@@ -29,7 +29,7 @@ export async function* streamCodexAsAnthropic(
       yield event;
     }
   } catch (error) {
-    if (signal?.aborted) {
+    if (signal?.aborted || state.isTerminal) {
       return;
     }
     yield encodeSse("error", toAnthropicErrorBody(asBridgeError(error)));
@@ -46,6 +46,10 @@ class AnthropicStreamState {
   private sawTool = false;
 
   constructor(private readonly model: string) {}
+
+  get isTerminal(): boolean {
+    return this.terminal;
+  }
 
   accept(event: Record<string, unknown>): string[] {
     const output: string[] = [];
@@ -140,7 +144,8 @@ class AnthropicStreamState {
     }
 
     if (type === "response.failed" || type === "error") {
-      throw new Error(readString(record(event.error)?.message) ?? "Codex response failed.");
+      const error = record(event.error) ?? record(record(event.response)?.error);
+      throw new Error(readString(error?.message) ?? readString(event.message) ?? "Codex response failed.");
     }
     return output;
   }

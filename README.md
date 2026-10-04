@@ -187,6 +187,7 @@ billing or exact context-window accounting.
 | `CODEX_BRIDGE_DEFAULT_EFFORT` | `medium` | Default reasoning effort |
 | `CODEX_BRIDGE_BODY_LIMIT_BYTES` | `33554432` | Maximum JSON request size |
 | `CODEX_BRIDGE_LOG_LEVEL` | `info` | `silent`, `error`, or `info` |
+| `CODEX_BRIDGE_MAX_RETRIES` | `2` | Transient retries before the upstream response starts, from `0` to `5` |
 | `CODEX_BRIDGE_CODEX_BASE_URL` | ChatGPT Codex backend | Adapter test/override URL |
 | `CODEX_BRIDGE_CODEX_CLIENT_VERSION` | `0.139.0` | Private Codex backend client identity |
 
@@ -214,6 +215,54 @@ error instead of attempting OAuth refresh itself.
 
 Credential values are excluded from health output, status output, errors, and
 logs.
+
+## Network And Retries
+
+Codex Bridge uses Node.js `fetch` and the operating system's network routes.
+A VPN with TUN routing can carry Bridge traffic without an explicit proxy.
+An OS HTTP/SOCKS proxy setting alone does not configure Node.js `fetch`.
+The Bridge never changes system proxy or Claude Code settings.
+
+For an explicit HTTP proxy, start only the Bridge process with Node.js
+environment-proxy support (Node.js 22.21.0+ or 24.5.0+). Replace the example
+proxy port with your VPN's actual HTTP proxy port:
+
+```bash
+HTTPS_PROXY="http://127.0.0.1:7897" \
+HTTP_PROXY="http://127.0.0.1:7897" \
+NO_PROXY="localhost,127.0.0.1,::1" \
+NODE_USE_ENV_PROXY=1 codex-bridge serve
+```
+
+See [Node.js enterprise network configuration](https://nodejs.org/en/learn/http/enterprise-network-configuration)
+for version requirements and proxy configuration. Older Node.js versions still
+work with transparent VPN routing, but the command above requires a version
+with environment-proxy support.
+
+Transient connection failures (such as connection reset, temporary DNS
+failure, and connect timeout) and HTTP `408`, `429`, `500`, `502`, `503`, or
+`504` receive at most two retries by default: after 1 second, then 2 seconds.
+Additional configured retries use exponential backoff capped at 10 seconds;
+`Retry-After` can increase the wait up to the same cap. Set
+`CODEX_BRIDGE_MAX_RETRIES=0` to disable these retries.
+
+Invalid requests, permanent DNS failures, TLS verification failures, unchanged
+unauthorized credentials, and client cancellation are not retried. Cancelling
+a request stops any pending backoff. The separate single credential-reload
+retry described above remains available when the login token changed.
+
+Retries apply only before a successful upstream response is received. Once
+its body starts, the Bridge never replays it, even for non-streaming clients.
+A partial-stream disconnect or missing completion produces an explicit SSE
+`error` event in the client's API format instead of silently ending or
+fabricating success. A disconnect after a terminal success event does not
+turn that completed stream into a failure.
+
+HTTP errors and streaming errors include sanitized cause messages and
+available network details such as `code`, `syscall`, host, and port. OAuth
+tokens, API keys, proxy credentials, and labeled `encrypted_content` values
+are redacted; request bodies, headers, and stack traces are not copied into
+diagnostics. The Bridge does not save request or response logs to disk.
 
 ## Development
 

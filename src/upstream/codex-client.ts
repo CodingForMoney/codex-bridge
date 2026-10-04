@@ -1,40 +1,56 @@
-import { BridgeError, redactSecrets } from "../errors.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { BridgeError, redactSecrets, upstreamTransportError } from "../errors.js";
 import type { CodexCredential } from "../auth/credential-status.js";
 import { CodexCredentialReader } from "../auth/credential-reader.js";
 import type { CodexCompactRequest, CodexResponsesRequest } from "../protocol/types.js";
+
+const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 export interface CodexClientOptions {
   credentialReader: CodexCredentialReader;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
   clientVersion?: string;
+  maxRetries?: number;
+  retryDelayMs?: number;
 }
 
 export class CodexClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly clientVersion: string;
+  private readonly maxRetries: number;
+  private readonly retryDelayMs: number;
 
   constructor(private readonly options: CodexClientOptions) {
     this.baseUrl = (options.baseUrl ?? "https://chatgpt.com/backend-api/codex").replace(/\/$/, "");
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.clientVersion = options.clientVersion ?? "0.139.0";
+    this.maxRetries = options.maxRetries ?? 2;
+    this.retryDelayMs = options.retryDelayMs ?? 1_000;
+    if (!Number.isInteger(this.maxRetries) || this.maxRetries < 0 || this.maxRetries > 5 ||
+        !Number.isFinite(this.retryDelayMs) || this.retryDelayMs < 0) {
+      throw new BridgeError("BRIDGE_CONFIGURATION_INVALID", "maxRetries must be 0 to 5 and retryDelayMs must be non-negative.");
+    }
   }
 
   async createResponse(request: CodexResponsesRequest, signal?: AbortSignal): Promise<Response> {
-    return this.withCredentialReload("responses", (credential) =>
-      this.request("responses", credential, {
+    return this.withCredentialReload(
+      "responses",
+      (credential) => this.request("responses", credential, {
         method: "POST",
         accept: "text/event-stream",
         body: JSON.stringify(request),
         ...(signal ? { signal } : {})
-      })
+      }),
+      signal
     );
   }
 
   async compactResponse(request: CodexCompactRequest, signal?: AbortSignal): Promise<Response> {
-    return this.withCredentialReload("compaction", (credential) =>
-      this.request("responses", credential, {
+    return this.withCredentialReload(
+      "compaction",
+      (credential) => this.request("responses", credential, {
         method: "POST",
         accept: "text/event-stream",
         body: JSON.stringify({
@@ -53,27 +69,54 @@ export class CodexClient {
           ...(request.text ? { text: request.text } : {})
         } satisfies CodexResponsesRequest),
         ...(signal ? { signal } : {})
-      })
+      }),
+      signal
     );
   }
 
   private async withCredentialReload(
     operation: "responses" | "compaction",
-    perform: (credential: CodexCredential) => Promise<Response>
+    perform: (credential: CodexCredential) => Promise<Response>,
+    signal?: AbortSignal
   ): Promise<Response> {
-    const first = await this.options.credentialReader.read();
-    let response = await perform(first);
-    if (response.status === 401) {
-      response.body?.cancel().catch(() => undefined);
-      const latest = await this.options.credentialReader.read();
-      if (latest.accessToken !== first.accessToken) {
-        response = await perform(latest);
+    signal?.throwIfAborted();
+    let credential = await this.options.credentialReader.read();
+    let reloaded = false;
+    let retries = 0;
+    while (true) {
+      signal?.throwIfAborted();
+      let response: Response;
+      try {
+        response = await perform(credential);
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (!(error instanceof BridgeError) || !error.retryable || retries >= this.maxRetries) throw error;
+        await delay(this.retryDelay(retries++), undefined, { signal });
+        continue;
       }
+      if (response.status === 401 && !reloaded) {
+        reloaded = true;
+        const latest = await this.options.credentialReader.read();
+        if (latest.accessToken !== credential.accessToken) {
+          await response.body?.cancel().catch(() => undefined);
+          credential = latest;
+          continue;
+        }
+      }
+      if (response.ok) return response;
+      const error = await responseError(response, operation);
+      if (!RETRYABLE_HTTP_STATUSES.has(response.status) || retries >= this.maxRetries) throw error;
+      await delay(this.retryDelay(retries++, response.headers.get("retry-after")), undefined, { signal });
     }
-    if (!response.ok) {
-      throw await responseError(response, operation);
+  }
+
+  private retryDelay(retries: number, retryAfter?: string | null): number {
+    let retryAfterMs = 0;
+    if (retryAfter) {
+      const seconds = Number(retryAfter);
+      retryAfterMs = Number.isFinite(seconds) ? seconds * 1_000 : Date.parse(retryAfter) - Date.now();
     }
-    return response;
+    return Math.min(10_000, Math.max(this.retryDelayMs * 2 ** retries, Number.isFinite(retryAfterMs) ? retryAfterMs : 0));
   }
 
   private async request(
@@ -102,14 +145,8 @@ export class CodexClient {
         ...(init.signal ? { signal: init.signal } : {})
       });
     } catch (error) {
-      if (init.signal?.aborted) {
-        throw error;
-      }
-      throw new BridgeError(
-        "CODEX_UPSTREAM_UNREACHABLE",
-        `Codex backend could not be reached at ${this.baseUrl}.`,
-        { cause: error, retryable: true, statusCode: 502 }
-      );
+      init.signal?.throwIfAborted();
+      throw upstreamTransportError(error, `Codex backend could not be reached at ${this.baseUrl}.`);
     }
   }
 }
@@ -154,7 +191,7 @@ async function responseError(
     }
   }
   return new BridgeError("CODEX_UPSTREAM_ERROR", message, {
-    retryable: response.status >= 500,
+    retryable: RETRYABLE_HTTP_STATUSES.has(response.status),
     statusCode: response.status >= 400 && response.status < 600 ? response.status : 502
   });
 }

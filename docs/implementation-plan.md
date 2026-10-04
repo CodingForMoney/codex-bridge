@@ -156,7 +156,8 @@ Primary components:
 - `CodexCredentialReader` resolves `CODEX_HOME`, loads a fresh snapshot, parses
   token expiry, and returns redacted status information.
 - `CodexClient` owns all communication with the Codex backend and performs the
-  single credential-reload retry after HTTP 401.
+  single credential-reload retry after HTTP 401, plus bounded transient
+  network/HTTP retries before a successful upstream response is received.
 - `BridgeApiKeyStore` creates, persists, reads, and explicitly rotates the local
   client key without interacting with Codex authentication.
 - The protocol modules convert requests, responses, streaming events, tools,
@@ -177,9 +178,10 @@ variables:
 - `CODEX_BRIDGE_HOST`
 - `CODEX_BRIDGE_PORT`
 - `CODEX_BRIDGE_LOG_LEVEL`
+- `CODEX_BRIDGE_MAX_RETRIES`, default 2, from 0 to 5
 - `CODEX_BRIDGE_CODEX_CLIENT_VERSION`, used as the versioned private backend
   client identity
-- `CODEX_BRIDGE_MODEL`, optionally forcing one of the two supported models
+- `CODEX_BRIDGE_MODEL`, optionally forcing one of the three supported models
 - `CODEX_HOME`, consumed as the standard Codex credential location
 
 No Codex access token, refresh token, or ID token may be accepted as persistent
@@ -232,6 +234,25 @@ codes include:
 Authentication errors direct the user back to Codex. They must not recommend
 editing credential files manually.
 
+Transport errors preserve a bounded, sanitized cause chain including available
+network codes, syscall, hostname, address, and port. They never expose tokens,
+proxy credentials, labeled encrypted content, full request headers, or stacks.
+Both streaming protocols emit an explicit error when the body disconnects or
+ends before a terminal event; a completed stream is not failed by a later
+disconnect.
+
+Transient network failures and HTTP 408/429/500/502/503/504 are retried at most
+twice by default with 1-second and 2-second delays. The configurable limit is
+0 to 5; exponential backoff and Retry-After are capped at 10 seconds. Invalid
+requests, permanent DNS/TLS errors, and cancellation are not retried. Client
+cancellation interrupts retry waits. The Bridge never replays a successful
+upstream response body, including when collecting a non-streaming result.
+
+Networking uses native Node.js fetch and OS routing. Transparent VPN routing
+works without a Bridge proxy setting. Explicit environment-proxy support is
+provided by compatible Node.js versions, not by modifying global OS or client
+settings.
+
 ## 9. Security Requirements
 
 - bind to loopback unless the user explicitly selects another address
@@ -268,6 +289,9 @@ outside the initial scope.
 - tool-call and tool-result conversion
 - streaming event ordering and termination
 - stable error mapping
+- bounded cause-chain diagnostics and credential/opaque-content redaction
+- transient network/HTTP retry limits, disabling retries, and abortable backoff
+- no retry for permanent DNS/TLS errors or unchanged unauthorized credentials
 - first-use key creation, persistence, permissions, concurrency, and explicit
   rotation
 - exact supported-model allowlist and rejection of every other model
@@ -283,6 +307,10 @@ outside the initial scope.
 - streaming cancellation and client disconnects
 - fixed model-list response and model rejection before upstream dispatch
 - mocked Codex 401, 429, 5xx, malformed stream, and network failure
+- real local socket disconnect before response headers and recovery through
+  native fetch
+- mid-stream failure reported in both API formats without replay or success
+- retry exhaustion and cancellation exposed through the local HTTP endpoints
 - verification that no code path writes to `auth.json` or `~/.claude`
 
 ### Manual smoke tests

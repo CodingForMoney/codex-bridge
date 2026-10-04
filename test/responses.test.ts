@@ -122,6 +122,35 @@ test("collects a terminal Codex stream into a native Responses object", async ()
   assert.deepEqual(await collectCodexResponsesResponse(response.body), completed);
 });
 
+test("reports EOF and DONE without a terminal event as an explicit streaming error", async () => {
+  for (const response of [
+    new Response(""),
+    new Response("data: [DONE]\n\n"),
+    codexSse([{ type: "response.created", sequence_number: 2, response: { id: "resp_unfinished" } }])
+  ]) {
+    const events = await collectNormalizedEvents(response);
+    const error = events.find((event) => event.type === "error");
+    assert.equal(error?.code, "PROTOCOL_RESPONSE_INVALID");
+    assert.match(String(error?.message), /without a terminal Responses event/);
+    assert.equal(events.some((event) => event.type === "response.completed"), false);
+  }
+});
+
+test("forwards a single sanitized upstream failure while preserving its error metadata", async () => {
+  for (const event of [
+    { type: "error", code: "server_error", message: "Bearer private-token", param: null, sequence_number: 4, future_field: true },
+    { type: "response.failed", response: { id: "resp_failed", error: { code: "server_error", message: "Bearer private-token" } }, future_field: true }
+  ]) {
+    const events = await collectNormalizedEvents(codexSse([event]));
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.type, event.type);
+    assert.equal(events[0]?.future_field, true);
+    assert.doesNotMatch(JSON.stringify(events), /private-token/);
+    assert.match(JSON.stringify(events), /REDACTED/);
+    assert.match(JSON.stringify(events), /server_error/);
+  }
+});
+
 test("restores terminal output from output item events when Codex omits response.output", async () => {
   const message = {
     type: "message",

@@ -50,6 +50,61 @@ export function asBridgeError(error: unknown): BridgeError {
   return new BridgeError("CODEX_UPSTREAM_ERROR", message, { cause: error });
 }
 
+const TRANSIENT_NETWORK_CODES = new Set([
+  "ECONNRESET", "ECONNREFUSED", "ECONNABORTED", "ETIMEDOUT", "EPIPE",
+  "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "UND_ERR_SOCKET"
+]);
+
+export function upstreamTransportError(error: unknown, message: string): BridgeError {
+  return new BridgeError("CODEX_UPSTREAM_UNREACHABLE", message, {
+    cause: error,
+    retryable: isTransientNetworkError(error),
+    statusCode: 502
+  });
+}
+
+function isTransientNetworkError(error: unknown): boolean {
+  const chain = errorChain(error);
+  if (chain.some((entry) => entry.name === "AbortError")) return false;
+  const codes = chain.map((entry) => entry.code).filter((code): code is string => typeof code === "string");
+  if (codes.some((code) =>
+    code === "ENOTFOUND" || code === "CERT_HAS_EXPIRED" ||
+    code === "DEPTH_ZERO_SELF_SIGNED_CERT" || code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
+    code.startsWith("ERR_TLS_") || code.startsWith("ERR_SSL_")
+  )) return false;
+  return codes.some((code) => TRANSIENT_NETWORK_CODES.has(code));
+}
+
+export function formatErrorMessage(error: BridgeError): string {
+  const causes = errorChain(error).slice(1).map((entry) => {
+    const name = typeof entry.name === "string" ? redactSecrets(entry.name).slice(0, 80) : "Error";
+    const message = typeof entry.message === "string" ? redactSecrets(entry.message).slice(0, 512) : "";
+    const fields = ["code", "syscall", "hostname", "address", "port"].flatMap((key) => {
+      const value = entry[key];
+      return typeof value === "string" || typeof value === "number" ? [`${key}=${redactSecrets(String(value)).slice(0, 128)}`] : [];
+    });
+    return `${name}: ${message}${fields.length ? ` (${fields.join(", ")})` : ""}`;
+  });
+  return redactSecrets(`${error.message}${causes.length ? ` Caused by: ${causes.join(" -> ")}` : ""}`);
+}
+
+function errorChain(error: unknown): Array<Record<string, unknown>> {
+  const pending = [error];
+  const seen = new Set<object>();
+  const chain: Array<Record<string, unknown>> = [];
+  while (pending.length && chain.length < 8) {
+    const value = pending.shift();
+    if (typeof value !== "object" || value === null || seen.has(value)) continue;
+    seen.add(value);
+    const entry = value as Record<string, unknown>;
+    chain.push(entry);
+    if (entry.cause !== undefined) pending.push(entry.cause);
+    if (Array.isArray(entry.errors)) pending.push(...entry.errors.slice(0, 8));
+  }
+  return chain;
+}
+
 export function redactSecrets(value: string, secrets: readonly string[] = []): string {
   let redacted = value;
   for (const secret of secrets) {
@@ -59,7 +114,10 @@ export function redactSecrets(value: string, secrets: readonly string[] = []): s
   }
   return redacted
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
-    .replace(/\b(access|refresh|id)_token\b\s*[:=]\s*["']?[^\s,"'}]+/gi, "$1_token=[REDACTED]");
+    .replace(/\b(access_token|refresh_token|id_token|encrypted_content|api_key|apiKey|client_secret)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi, "$1=[REDACTED]")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[REDACTED]")
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{12,}|cb_[A-Za-z0-9_-]{12,})\b/g, "[REDACTED]")
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1[REDACTED]@");
 }
 
 export function anthropicErrorType(error: BridgeError): string {
@@ -92,7 +150,7 @@ export function toAnthropicErrorBody(error: BridgeError): Record<string, unknown
     type: "error",
     error: {
       type: anthropicErrorType(error),
-      message: redactSecrets(error.message),
+      message: formatErrorMessage(error),
       code: error.code
     }
   };
@@ -101,7 +159,7 @@ export function toAnthropicErrorBody(error: BridgeError): Record<string, unknown
 export function toOpenAiErrorBody(error: BridgeError): Record<string, unknown> {
   return {
     error: {
-      message: redactSecrets(error.message),
+      message: formatErrorMessage(error),
       type: anthropicErrorType(error),
       param: null,
       code: error.code

@@ -1,4 +1,4 @@
-import { BridgeError } from "../errors.js";
+import { BridgeError, upstreamTransportError } from "../errors.js";
 
 export interface SseEvent {
   event?: string;
@@ -54,6 +54,9 @@ export async function* parseSseStream(
     if (trailing) {
       yield trailing;
     }
+  } catch (error) {
+    if (signal?.aborted || error instanceof BridgeError) throw error;
+    throw upstreamTransportError(error, "Codex response stream disconnected.");
   } finally {
     signal?.removeEventListener("abort", abort);
     reader.releaseLock();

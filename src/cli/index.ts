@@ -2,7 +2,7 @@
 import { CodexCredentialReader } from "../auth/credential-reader.js";
 import { BridgeApiKeyStore } from "../config/api-key-store.js";
 import { loadConfig } from "../config/config.js";
-import { asBridgeError, redactSecrets } from "../errors.js";
+import { asBridgeError, formatErrorMessage } from "../errors.js";
 import { SUPPORTED_MODELS } from "../models.js";
 import { startBridgeServer } from "../server/app.js";
 import { VERSION } from "../version.js";
@@ -28,7 +28,7 @@ try {
   }
 } catch (error) {
   const bridgeError = asBridgeError(error);
-  console.error(`${bridgeError.code}: ${redactSecrets(bridgeError.message)}`);
+  console.error(`${bridgeError.code}: ${formatErrorMessage(bridgeError)}`);
   process.exitCode = 1;
 }
 
@@ -133,6 +133,7 @@ Optional environment:
   CODEX_HOME                 Existing Codex home (default: ~/.codex)
   CODEX_BRIDGE_MODEL         Force one upstream Codex model
   CODEX_BRIDGE_DEFAULT_EFFORT  Default reasoning effort (default: medium)
+  CODEX_BRIDGE_MAX_RETRIES    Transient retries before stream start (default: 2)
   CODEX_BRIDGE_CODEX_CLIENT_VERSION  Codex catalog compatibility version
 
 The local API key is generated in ~/.cb/config.json and printed when serve starts.

@@ -48,7 +48,8 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<R
   const codexClient = options.codexClient ?? new CodexClient({
     credentialReader,
     baseUrl: options.config.codexBaseUrl,
-    clientVersion: options.config.codexClientVersion
+    clientVersion: options.config.codexClientVersion,
+    ...(options.config.maxRetries !== undefined ? { maxRetries: options.config.maxRetries } : {})
   });
   const apiKeyProvider = options.apiKeyProvider ?? {
     read: async () => options.config.apiKey

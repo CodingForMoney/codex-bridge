@@ -12,6 +12,7 @@ export interface BridgeConfig {
   defaultEffort: string;
   bodyLimitBytes: number;
   logLevel: "silent" | "error" | "info";
+  maxRetries?: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, apiKey = ""): BridgeConfig {
@@ -49,7 +50,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, apiKey = ""): B
     ...(modelOverride ? { modelOverride: resolveSupportedModel({ model: modelOverride }) } : {}),
     defaultEffort: env.CODEX_BRIDGE_DEFAULT_EFFORT?.trim() || "medium",
     bodyLimitBytes,
-    logLevel
+    logLevel,
+    maxRetries: integer(env.CODEX_BRIDGE_MAX_RETRIES, 2, 0, 5, "CODEX_BRIDGE_MAX_RETRIES")
   };
 }
 
